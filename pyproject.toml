@@ -32,6 +32,7 @@ dependencies = [
     "django>=4.2",
     "ag-ui-protocol>=0.1.0",
     "pydantic>=2.0",
+    "asgiref>=3.7",
 ]
 
 [project.optional-dependencies]
