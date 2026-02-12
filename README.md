@@ -5,27 +5,33 @@
 ## Why django-agui
 
 - **AG-UI protocol compatibility** - Full support for the AG-UI streaming protocol
+- **Multi-framework support** - Works with Django, DRF, Django Ninja, and Django Bolt
 - **Django-native** - Uses Django views, URL routing, auth, and settings
 - **Simple API** - Just provide your agent function, we'll handle the rest
-- **DRF support** - Optional Django REST Framework integration
 - **Production-ready** - Async views, SSE streaming, proper error handling
 
-## Quick Start
-
-### Installation
+## Installation
 
 ```bash
 pip install django-agui
 ```
 
-For Django REST Framework support:
+For specific framework support, install the corresponding package:
+
 ```bash
-pip install django-agui[drf]
+# Django REST Framework
+pip install djangorestframework
+
+# Django Ninja
+pip install django-ninja
+
+# Django Bolt
+pip install django-bolt
 ```
 
-### Basic Usage
+## Quick Start
 
-#### 1. Create your agent function
+### 1. Create your agent function
 
 ```python
 # agents.py
@@ -34,35 +40,32 @@ from ag_ui.core import (
     TextMessageContentEvent,
     TextMessageStartEvent,
     TextMessageEndEvent,
-    ToolCallStartEvent,
 )
 
 async def echo_agent(input_data, request):
     """Simple echo agent."""
-    # Get user message
     user_message = input_data.messages[-1].content[0].text
 
-    # Start text message
     yield TextMessageStartEvent(
         type=EventType.TEXT_MESSAGE_START,
         message_id="msg-1",
     )
 
-    # Stream content
     yield TextMessageContentEvent(
         type=EventType.TEXT_MESSAGE_CONTENT,
         message_id="msg-1",
         delta=f"Echo: {user_message}",
     )
 
-    # End message
     yield TextMessageEndEvent(
         type=EventType.TEXT_MESSAGE_END,
         message_id="msg-1",
     )
 ```
 
-#### 2. Wire up URL patterns
+### 2. Wire up URL patterns
+
+#### Option 1: Pure Django (Default)
 
 ```python
 # urls.py
@@ -71,54 +74,73 @@ from django_agui import get_agui_urlpatterns
 from .agents import echo_agent
 
 urlpatterns = [
-    *get_agui_urlpatterns(
-        path_prefix="agent/",
-        run_agent=echo_agent,
-    ),
+    *get_agui_urlpatterns(path_prefix="agent/", run_agent=echo_agent),
 ]
 ```
 
-That's it! Your agent is now accessible at `/agent/` and fully AG-UI compatible.
-
-## API Reference
-
-### `get_agui_urlpatterns()`
-
-The simplest way to expose a single agent.
+#### Option 2: Django REST Framework
 
 ```python
-get_agui_urlpatterns(
-    path_prefix="agent/",           # URL path
-    run_agent=my_agent_function,     # Your async agent function
-    translate_event=None,            # Optional: translate custom events
-    get_system_message=None,         # Optional: get system message
-    auth_required=False,             # Optional: require authentication
-    allowed_origins=None,            # Optional: CORS origins
-)
+# urls.py
+from django_agui.contrib.drf import get_drf_urlpatterns
+from .agents import echo_agent
+
+urlpatterns = [
+    *get_drf_urlpatterns(path_prefix="agent/", run_agent=echo_agent),
+]
 ```
 
-### `AGUIRouter` / `MultiAgentRouter`
-
-For multiple agents on the same server:
+#### Option 3: Django Ninja
 
 ```python
+# urls.py
+from django_agui.contrib.ninja import get_ninja_urlpatterns
+from .agents import echo_agent
+
+urlpatterns = [
+    *get_ninja_urlpatterns(path_prefix="agent/", run_agent=echo_agent),
+]
+```
+
+#### Option 4: Django Bolt
+
+```python
+# urls.py
+from django_agui.contrib.bolt import get_bolt_urlpatterns
+from .agents import echo_agent
+
+urlpatterns = [
+    *get_bolt_urlpatterns(path_prefix="agent/", run_agent=echo_agent),
+]
+```
+
+### 3. Run
+
+```bash
+python manage.py runserver
+```
+
+## Advanced Usage
+
+### Multi-agent Router (Pure Django)
+
+```python
+# urls.py
 from django_agui import AGUIRouter
 
 router = AGUIRouter()
 
-# Register multiple agents
 router.register("echo", echo_agent)
 router.register("research", research_agent)
-router.register("code", code_agent)
+router.register("coder", coder_agent)
 
 urlpatterns = router.urls
 ```
 
-### `@agui_view` Decorator
-
-Decorate your agent function directly:
+### Decorator-based (Pure Django)
 
 ```python
+# views.py
 from django_agui.decorators import agui_view
 from django.urls import path
 
@@ -131,51 +153,26 @@ urlpatterns = [
 ]
 ```
 
-### Custom View Class
+### Backend Classes
 
-For more control, create your own view:
-
-```python
-from django_agui.views import create_agui_view
-
-MyAgentView = create_agui_view(
-    run_agent=my_agent_function,
-    translate_event=my_translator,
-    auth_required=True,
-)
-
-urlpatterns = [
-    path('agent/', MyAgentView.as_view()),
-]
-```
-
-## Django REST Framework Support
-
-For DRF integration, use the DRF-specific components:
+For more control, use the backend classes directly:
 
 ```python
-# urls.py
-from django_agui.router_drf import AGUIRouter as AGUIDRFRouter
-from .agents import my_agent
+from django_agui.contrib.drf import DRFBackend
+from django_agui.contrib.ninja import NinjaBackend
+from django_agui.contrib.bolt import BoltBackend
 
-router = AGUIDRFRouter()
-router.register("agent", my_agent, basename="my-agent")
+# DRF
+drf_backend = DRFBackend()
+view = drf_backend.create_view(run_agent=my_agent, streaming=True)
 
-urlpatterns = [
-    path('api/', include(router.urls)),
-]
-```
+# Ninja
+ninja_backend = NinjaBackend()
+api = ninja_backend.create_api(run_agent=my_agent)
 
-Or use the REST view for non-streaming responses:
-
-```python
-from django_agui.views_drf import create_agui_rest_drf_view
-
-MyAgentRestView = create_agui_rest_drf_view(my_agent)
-
-urlpatterns = [
-    path('api/agent/', MyAgentRestView.as_view()),
-]
+# Bolt
+bolt_backend = BoltBackend()
+api = bolt_backend.create_api(run_agent=my_agent)
 ```
 
 ## Configuration
@@ -188,97 +185,103 @@ AGUI = {
     # Authentication
     "AUTH_BACKEND": "django_agui.backends.auth.DjangoAuthBackend",
     "REQUIRE_AUTHENTICATION": False,
-
-    # State management (optional)
-    "STATE_BACKEND": None,
-
+    
     # SSE settings
-    "SSE_KEEPALIVE_INTERVAL": 30,  # seconds
-    "SSE_TIMEOUT": 300,             # seconds
-
+    "SSE_KEEPALIVE_INTERVAL": 30,
+    "SSE_TIMEOUT": 300,
+    
     # Request limits
-    "MAX_CONTENT_LENGTH": 10 * 1024 * 1024,  # 10MB
+    "MAX_CONTENT_LENGTH": 10 * 1024 * 1024,
 }
 ```
 
-## Advanced Usage
+## Project Structure
 
-### Event Translation
+```
+django-agui/
+├── src/django_agui/
+│   ├── __init__.py              # Core exports only
+│   ├── settings.py              # Django-style settings
+│   ├── urls.py                  # Core Django URL routing
+│   ├── views.py                 # Core Django views
+│   ├── decorators.py            # @agui_view decorator
+│   ├── encoders.py              # SSE event encoding
+│   ├── types.py                 # Type definitions
+│   ├── backends/
+│   │   └── auth.py              # Django auth backend
+│   └── contrib/                 # Framework integrations
+│       ├── drf/                 # Django REST Framework
+│       ├── ninja/               # Django Ninja
+│       └── bolt/                # Django Bolt
+```
 
-If your agent produces custom events, translate them to AG-UI:
+## API Reference
+
+### Core Django
 
 ```python
-async def my_custom_translator(event):
-    """Translate MyFramework events to AG-UI events."""
-    if isinstance(event, MyTextDelta):
-        yield TextMessageContentEvent(
-            type=EventType.TEXT_MESSAGE_CONTENT,
-            message_id=event.id,
-            delta=event.text,
-        )
-    elif isinstance(event, MyToolCall):
-        yield ToolCallStartEvent(
-            type=EventType.TOOL_CALL_START,
-            tool_call_id=event.id,
-            tool_name=event.name,
-        )
-
-# Use it
-get_agui_urlpatterns(
-    path_prefix="agent/",
-    run_agent=my_agent,
-    translate_event=my_custom_translator,
+from django_agui import (
+    AGUIRouter,
+    get_agui_urlpatterns,
+    agui_view,
 )
 ```
 
-### Authentication
-
-Control access to your agents:
+### Django REST Framework
 
 ```python
-# In your view or using the router
-get_agui_urlpatterns(
-    path_prefix="agent/",
-    run_agent=my_agent,
-    auth_required=True,
+from django_agui.contrib.drf import (
+    DRFBackend,
+    AGUIView,
+    AGUIRestView,
+    get_drf_urlpatterns,
+    create_drf_view,
 )
 ```
 
-With DRF:
+### Django Ninja
 
 ```python
-from rest_framework.permissions import IsAuthenticated
-
-class MyProtectedAgentView(AGUIView):
-    permission_classes = [IsAuthenticated]
+from django_agui.contrib.ninja import (
+    NinjaBackend,
+    get_ninja_urlpatterns,
+    create_ninja_api,
+)
 ```
 
-### Accessing Django Request
-
-Your agent function receives the Django request:
+### Django Bolt
 
 ```python
-async def my_agent(input_data, request):
-    # Access authenticated user
-    user = request.user
+from django_agui.contrib.bolt import (
+    BoltBackend,
+    get_bolt_urlpatterns,
+    create_bolt_api,
+)
+```
 
-    # Access headers
-    api_key = request.headers.get("X-API-Key")
+## Testing
 
-    # Yield events...
+```bash
+# Run all tests
+pytest
+
+# Run unit tests only
+pytest tests/unit/
+
+# Run integration tests (requires frameworks)
+pytest tests/integration/
+
+# Run with coverage
+pytest --cov=django_agui
 ```
 
 ## Production Deployment
 
 ### Nginx Configuration
 
-Critical for SSE streaming:
-
 ```nginx
 location /agent/ {
     proxy_pass http://localhost:8000;
-
-    # Required for SSE
     proxy_buffering off;
     proxy_cache off;
     proxy_set_header Connection "";
@@ -291,65 +294,6 @@ location /agent/ {
 
 ```bash
 gunicorn myproject.asgi:application -w 4 -k uvicorn.workers.UvicornWorker
-```
-
-### ASGI Server
-
-```bash
-uvicorn myproject.asgi:application --workers 4
-```
-
-## Example: Complete Agent
-
-```python
-# agents.py
-from ag_ui.core import (
-    EventType,
-    TextMessageContentEvent,
-    TextMessageStartEvent,
-    TextMessageEndEvent,
-    ToolCallStartEvent,
-    ToolCallArgsEvent,
-    ToolCallEndEvent,
-    ToolCallResultEvent,
-)
-
-async def chat_agent(input_data, request):
-    """Chat agent with tool support."""
-    user_message = input_data.messages[-1].content[0].text
-
-    # Start run
-    yield TextMessageStartEvent(
-        type=EventType.TEXT_MESSAGE_START,
-        message_id="msg-1",
-    )
-
-    # Stream response
-    response = f"You said: {user_message}"
-    for word in response.split():
-        yield TextMessageContentEvent(
-            type=EventType.TEXT_MESSAGE_CONTENT,
-            message_id="msg-1",
-            delta=f"{word} ",
-        )
-
-    # End message
-    yield TextMessageEndEvent(
-        type=EventType.TEXT_MESSAGE_END,
-        message_id="msg-1",
-    )
-
-# urls.py
-from django.urls import path
-from django_agui import get_agui_urlpatterns
-from .agents import chat_agent
-
-urlpatterns = [
-    *get_agui_urlpatterns(
-        path_prefix="chat/",
-        run_agent=chat_agent,
-    ),
-]
 ```
 
 ## License

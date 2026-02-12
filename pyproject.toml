@@ -4,7 +4,7 @@ build-backend = "uv_build"
 
 [project]
 name = "django-agui"
-version = "0.1.0"
+version = "0.2.0"
 description = "Django integration for the AG-UI (Agent-User Interaction) protocol"
 readme = "README.md"
 license = { text = "MIT" }
@@ -38,8 +38,16 @@ dependencies = [
 drf = [
     "djangorestframework>=3.14",
 ]
-orm = [
-    "django>=4.2",
+ninja = [
+    "django-ninja>=0.21",
+]
+bolt = [
+    "django-bolt>=0.3",
+]
+all = [
+    "djangorestframework>=3.14",
+    "django-ninja>=0.21",
+    "django-bolt>=0.3",
 ]
 channels = ["channels>=4.0", "channels-redis>=4.0"]
 
@@ -132,6 +140,9 @@ markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "integration: marks tests as integration tests",
     "e2e: marks tests as end-to-end tests",
+    "drf: marks tests as requiring Django REST Framework",
+    "ninja: marks tests as requiring Django Ninja",
+    "bolt: marks tests as requiring Django Bolt",
 ]
 
 [tool.coverage.run]

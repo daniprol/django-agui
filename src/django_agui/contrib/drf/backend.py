@@ -1,0 +1,89 @@
+"""Django REST Framework backend for django-agui."""
+
+from __future__ import annotations
+
+from typing import Any, Callable
+
+from django_agui.contrib.drf.views import AGUIView, AGUIRestView
+
+
+class DRFBackend:
+    """Django REST Framework backend for AG-UI.
+
+    Usage:
+        backend = DRFBackend()
+        view = backend.create_view(run_agent=my_agent)
+        urlpatterns = backend.get_urlpatterns("agent/", my_agent)
+    """
+
+    def create_view(
+        self,
+        run_agent: Callable[..., Any],
+        translate_event: Callable[[Any], Any] | None = None,
+        get_system_message: Callable[[Any], str | None] | None = None,
+        auth_required: bool = False,
+        streaming: bool = True,
+        **kwargs: Any,
+    ) -> type:
+        """Create a DRF view class.
+
+        Args:
+            run_agent: Async function that runs the agent
+            translate_event: Optional event translator
+            get_system_message: Optional system message function
+            auth_required: Whether authentication is required
+            streaming: If True, use SSE streaming. If False, use REST response.
+            **kwargs: Additional options passed to the view
+
+        Returns:
+            DRF view class
+        """
+        base_class = AGUIView if streaming else AGUIRestView
+
+        # Create a new view class with the agent configured
+        class ConfiguredView(base_class):
+            pass
+
+        ConfiguredView.run_agent = run_agent
+        ConfiguredView.translate_event = translate_event
+        ConfiguredView.get_system_message = get_system_message
+        ConfiguredView.auth_required = auth_required
+
+        # Apply any additional attributes from kwargs
+        for key, value in kwargs.items():
+            setattr(ConfiguredView, key, value)
+
+        return ConfiguredView
+
+    def get_urlpatterns(
+        self,
+        path_prefix: str,
+        run_agent: Callable[..., Any],
+        streaming: bool = True,
+        **kwargs: Any,
+    ) -> list:
+        """Get DRF URL patterns.
+
+        Args:
+            path_prefix: URL path prefix (e.g., "agent/")
+            run_agent: Async function that runs the agent
+            streaming: If True, use SSE streaming
+            **kwargs: Additional options
+
+        Returns:
+            List of Django URL patterns
+        """
+        from django.urls import path
+
+        view_class = self.create_view(
+            run_agent=run_agent,
+            streaming=streaming,
+            **kwargs,
+        )
+
+        normalized = path_prefix.strip("/")
+        agent_path = f"{normalized}/" if normalized else ""
+
+        return [
+            path(agent_path, view_class.as_view(), name="drf-agui-agent"),
+        ]

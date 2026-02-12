@@ -35,3 +35,56 @@ if not settings.configured:
     )
 
 django.setup()
+
+
+# Fixtures for testing
+import pytest
+from ag_ui.core import EventType, TextMessageContentEvent, TextMessageStartEvent
+
+
+@pytest.fixture
+def mock_agent():
+    """Fixture providing a mock agent function."""
+
+    async def agent(input_data, request):
+        yield TextMessageStartEvent(
+            type=EventType.TEXT_MESSAGE_START,
+            message_id="msg-1",
+        )
+        yield TextMessageContentEvent(
+            type=EventType.TEXT_MESSAGE_CONTENT,
+            message_id="msg-1",
+            delta="Hello from mock agent",
+        )
+
+    return agent
+
+
+@pytest.fixture
+def mock_request():
+    """Fixture providing a mock request object."""
+
+    class MockRequest:
+        def __init__(self):
+            self.user = MockUser()
+
+    class MockUser:
+        def __init__(self):
+            self.is_authenticated = False
+            self.username = "anonymous"
+
+    return MockRequest()
+
+
+@pytest.fixture
+def mock_run_input():
+    """Fixture providing a mock RunAgentInput."""
+    from ag_ui.core import RunAgentInput
+
+    return RunAgentInput(
+        thread_id="test-thread",
+        run_id="test-run",
+        messages=[],
+        tools=[],
+        context=[],
+    )

@@ -26,31 +26,26 @@ logger = logging.getLogger(__name__)
 
 
 class AGUIBaseView(APIView):
-    """Base class for AG-UI DRF views."""
+    """Base class for DRF AG-UI views."""
 
     run_agent: Callable[..., Any] = None
     translate_event: Callable[[Any], Any] | None = None
     get_system_message: Callable[[Any], str | None] | None = None
+    auth_required: bool = False
 
     def get_agent(self, request: Request) -> Callable[..., Any]:
-        """Get the agent function. Override for custom logic."""
+        """Get the agent function."""
         return self.run_agent
 
     def get_translator(self, request: Request) -> Callable[[Any], Any] | None:
-        """Get the event translator. Override for custom logic."""
+        """Get the event translator."""
         return self.translate_event
-
-    def get_system_message_func(
-        self, request: Request
-    ) -> Callable[[Any], str | None] | None:
-        """Get the system message function. Override for custom logic."""
-        return self.get_system_message
 
 
 class AGUIView(AGUIBaseView):
-    """AG-UI view that returns streaming response."""
+    """DRF AG-UI view with SSE streaming."""
 
-    def post(self, request: Request) -> Response:
+    async def post(self, request: Request) -> Response:
         """Handle POST request with AG-UI RunAgentInput."""
         agent = self.get_agent(request)
         if agent is None:
@@ -133,7 +128,7 @@ class AGUIView(AGUIBaseView):
 
 
 class AGUIRestView(AGUIBaseView):
-    """AG-UI view that returns a regular REST response (non-streaming)."""
+    """DRF AG-UI view returning REST response (non-streaming)."""
 
     async def post(self, request: Request) -> Response:
         """Handle POST request with AG-UI RunAgentInput."""
@@ -194,42 +189,3 @@ class AGUIRestView(AGUIBaseView):
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
-
-
-def create_agui_drf_view(
-    run_agent: Callable[..., Any],
-    translate_event: Callable[[Any], Any] | None = None,
-    get_system_message: Callable[[Any], str | None] | None = None,
-) -> type[AGUIView]:
-    """Create a DRF AG-UI view class.
-
-    Usage:
-        view_class = create_agui_drf_view(my_agent_function)
-        urlpatterns = [path('agent/', view_class.as_view())]
-    """
-
-    class ConfiguredAGUIView(AGUIView):
-        pass
-
-    ConfiguredAGUIView.run_agent = run_agent
-    ConfiguredAGUIView.translate_event = translate_event
-    ConfiguredAGUIView.get_system_message = get_system_message
-
-    return ConfiguredAGUIView
-
-
-def create_agui_rest_drf_view(
-    run_agent: Callable[..., Any],
-    translate_event: Callable[[Any], Any] | None = None,
-    get_system_message: Callable[[Any], str | None] | None = None,
-) -> type[AGUIRestView]:
-    """Create a DRF AG-UI REST view class (non-streaming)."""
-
-    class ConfiguredAGUIRestView(AGUIRestView):
-        pass
-
-    ConfiguredAGUIRestView.run_agent = run_agent
-    ConfiguredAGUIRestView.translate_event = translate_event
-    ConfiguredAGUIRestView.get_system_message = get_system_message
-
-    return ConfiguredAGUIRestView
