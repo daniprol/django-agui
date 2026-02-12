@@ -1,0 +1,183 @@
+[build-system]
+requires = ["uv_build>=0.9.6,<0.10.0"]
+build-backend = "uv_build"
+
+[project]
+name = "django-agui"
+version = "0.1.0"
+description = "Django integration for the AG-UI (Agent-User Interaction) protocol"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+authors = [{ name = "Daniel Prol Cambados", email = "prolcambados@outlook.com" }]
+keywords = ["django", "ag-ui", "agent", "protocol", "sse", "streaming"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Framework :: Django",
+    "Framework :: Django :: 4.2",
+    "Framework :: Django :: 5.0",
+    "Framework :: Django :: 5.1",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Internet :: WWW/HTTP",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = [
+    "django>=4.2",
+    "ag-ui-protocol>=0.1.0",
+    "pydantic>=2.0",
+]
+
+[project.optional-dependencies]
+drf = [
+    "djangorestframework>=3.14",
+]
+orm = [
+    "django>=4.2",
+]
+channels = ["channels>=4.0", "channels-redis>=4.0"]
+
+[dependency-groups]
+test = [
+    "pytest>=8.0",
+    "pytest-django>=4.8",
+    "pytest-asyncio>=0.23",
+    "pytest-cov>=4.1",
+    "httpx>=0.26",
+    "factory-boy>=3.3",
+]
+docs = [
+    "mkdocs>=1.6",
+    "mkdocs-material>=9.5",
+    "mkdocstrings[python]>=0.30",
+    "mkdocs-gen-files>=0.5",
+    "mkdocs-section-index>=0.3",
+    "mike>=2.1",
+]
+release = [
+    "towncrier>=24.8.0",
+]
+dev = [
+    "ruff>=0.9.0",
+    "ty>=0.0.1a16",
+    "pre-commit>=3.6",
+    { include-group = "test" },
+    { include-group = "docs" },
+    { include-group = "release" },
+]
+
+[project.urls]
+Homepage = "https://github.com/daniprol/django-agui"
+Repository = "https://github.com/daniprol/django-agui"
+Issues = "https://github.com/daniprol/django-agui/issues"
+Changelog = "https://github.com/daniprol/django-agui/blob/main/CHANGELOG.md"
+
+[tool.ruff]
+target-version = "py310"
+line-length = 88
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",
+    "W",
+    "F",
+    "I",
+    "N",
+    "D",
+    "UP",
+    "B",
+    "C4",
+    "SIM",
+    "ASYNC",
+]
+ignore = ["D100", "D104", "D107"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.isort]
+combine-as-imports = true
+force-sort-within-sections = true
+known-first-party = ["django_agui"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "--strict-markers",
+    "--strict-config",
+    "--verbose",
+    "--cov=django_agui",
+    "--cov-report=term-missing",
+    "--cov-report=html",
+    "--cov-report=xml",
+]
+asyncio_mode = "auto"
+DJANGO_SETTINGS_MODULE = "tests.settings"
+pythonpath = ["src", "tests"]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",
+    "e2e: marks tests as end-to-end tests",
+]
+
+[tool.coverage.run]
+source = ["src/django_agui"]
+branch = true
+
+[tool.coverage.report]
+fail_under = 20
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+]
+
+[tool.uv]
+required-version = ">=0.7.0"
+
+[tool.towncrier]
+package = "django_agui"
+package_dir = "src"
+filename = "CHANGELOG.md"
+directory = "changes"
+start_string = "<!-- towncrier release notes start -->\n"
+underlines = ["", "", ""]
+title_format = "## [{version}] - {project_date}"
+issue_format = "#{issue}"
+
+[[tool.towncrier.type]]
+directory = "breaking"
+name = "Breaking Changes"
+showcontent = true
+
+[[tool.towncrier.type]]
+directory = "feature"
+name = "Features"
+showcontent = true
+
+[[tool.towncrier.type]]
+directory = "fix"
+name = "Bug Fixes"
+showcontent = true
+
+[[tool.towncrier.type]]
+directory = "docs"
+name = "Documentation"
+showcontent = true
