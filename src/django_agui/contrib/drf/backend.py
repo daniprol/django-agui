@@ -6,16 +6,19 @@ from collections.abc import Callable
 from typing import Any
 
 from django_agui.contrib.drf.views import AGUIRestView, AGUIView
+from django_agui.urls import build_route_name, normalize_path_prefix
 
 
 class DRFBackend:
-    """Django REST Framework backend for AG-UI.
+    """Backend helper for wiring AG-UI endpoints into DRF."""
 
-    Usage:
-        backend = DRFBackend()
-        view = backend.create_view(run_agent=my_agent)
-        urlpatterns = backend.get_urlpatterns("agent/", my_agent)
-    """
+    streaming_view_class = AGUIView
+    rest_view_class = AGUIRestView
+    route_name_prefix = "agui-drf"
+
+    def get_view_class(self, *, streaming: bool) -> type:
+        """Return the DRF view class for the requested response mode."""
+        return self.streaming_view_class if streaming else self.rest_view_class
 
     def create_view(
         self,
@@ -30,26 +33,12 @@ class DRFBackend:
         streaming: bool = True,
         **kwargs: Any,
     ) -> type:
-        """Create a DRF view class.
+        """Create a configured DRF view class.
 
-        Args:
-            run_agent: Async function that runs the agent
-            translate_event: Optional event translator
-            get_system_message: Optional system message function
-            auth_required: Whether authentication is required
-            allowed_origins: CORS origins for this endpoint
-            emit_run_lifecycle_events: Override lifecycle event emission
-            error_detail_policy: "safe" or "full" error details in RUN_ERROR
-            state_save_policy: "always", "on_snapshot", or "disabled"
-            streaming: If True, use SSE streaming. If False, use REST response.
-            **kwargs: Additional options passed to the view
-
-        Returns:
-            DRF view class
+        Returning a class keeps DRF subclassing/mixin patterns ergonomic.
         """
-        base_class = AGUIView if streaming else AGUIRestView
+        base_class = self.get_view_class(streaming=streaming)
 
-        # Create a new view class with the agent configured
         class ConfiguredView(base_class):
             pass
 
@@ -62,7 +51,6 @@ class DRFBackend:
         ConfiguredView.error_detail_policy = error_detail_policy
         ConfiguredView.state_save_policy = state_save_policy
 
-        # Apply any additional attributes from kwargs
         for key, value in kwargs.items():
             setattr(ConfiguredView, key, value)
 
@@ -75,17 +63,7 @@ class DRFBackend:
         streaming: bool = True,
         **kwargs: Any,
     ) -> list:
-        """Get DRF URL patterns.
-
-        Args:
-            path_prefix: URL path prefix (e.g., "agent/")
-            run_agent: Async function that runs the agent
-            streaming: If True, use SSE streaming
-            **kwargs: Additional options
-
-        Returns:
-            List of Django URL patterns
-        """
+        """Build DRF URL patterns for one agent endpoint."""
         from django.urls import path
 
         view_class = self.create_view(
@@ -94,9 +72,10 @@ class DRFBackend:
             **kwargs,
         )
 
-        normalized = path_prefix.strip("/")
-        agent_path = f"{normalized}/" if normalized else ""
-
         return [
-            path(agent_path, view_class.as_view(), name="drf-agui-agent"),
+            path(
+                normalize_path_prefix(path_prefix),
+                view_class.as_view(),
+                name=build_route_name(self.route_name_prefix, path_prefix),
+            )
         ]

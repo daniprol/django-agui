@@ -26,24 +26,9 @@ def create_bolt_endpoint(
     error_detail_policy: str | None = None,
     state_save_policy: str | None = None,
 ) -> Callable[..., Any]:
-    """Create a Django Bolt endpoint function.
+    """Create a Django Bolt endpoint function."""
 
-    Args:
-        run_agent: Async function that runs the agent
-        translate_event: Optional event translator
-        get_system_message: Optional system message function
-        auth_required: Whether authentication is required
-        allowed_origins: CORS origins for this endpoint
-        emit_run_lifecycle_events: Override lifecycle event emission
-        error_detail_policy: "safe" or "full" RUN_ERROR payload policy
-        state_save_policy: "always", "on_snapshot", or "disabled"
-
-    Returns:
-        Async endpoint function for Django Bolt
-    """
-
-    async def agent_endpoint(request, body: dict) -> Any:
-        """Bolt endpoint handler."""
+    async def agent_endpoint(request, body: dict[str, Any]) -> Any:
         try:
             origin, resolved_origins = enforce_origin_and_auth(
                 request,

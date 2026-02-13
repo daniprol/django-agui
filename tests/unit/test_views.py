@@ -14,7 +14,7 @@ from ag_ui.core import (
 from django.test.client import AsyncRequestFactory
 import pytest
 
-from django_agui.views import AGUIView, create_agui_view
+from django_agui.views import AGUIView
 
 
 class _AuthBackendNone:
@@ -105,7 +105,7 @@ async def test_view_streams_events(settings):
             delta="hello",
         )
 
-    view = create_agui_view(agent).as_view()
+    view = AGUIView.as_view(run_agent=agent)
     factory = AsyncRequestFactory()
     request = factory.generic(
         "POST",
@@ -136,7 +136,7 @@ async def test_view_accepts_json_with_charset(settings):
             delta="ok",
         )
 
-    view = create_agui_view(agent).as_view()
+    view = AGUIView.as_view(run_agent=agent)
     factory = AsyncRequestFactory()
     request = factory.generic(
         "POST",
@@ -161,7 +161,7 @@ async def test_view_rejects_disallowed_origin(settings):
             delta="ok",
         )
 
-    view = create_agui_view(agent, allowed_origins=["https://allowed.test"]).as_view()
+    view = AGUIView.as_view(run_agent=agent, allowed_origins=["https://allowed.test"])
     factory = AsyncRequestFactory()
     request = factory.generic(
         "POST",
@@ -187,7 +187,7 @@ async def test_view_requires_auth_when_enabled(settings):
             delta="ok",
         )
 
-    view = create_agui_view(agent, auth_required=True).as_view()
+    view = AGUIView.as_view(run_agent=agent, auth_required=True)
     factory = AsyncRequestFactory()
     request = factory.generic(
         "POST",
@@ -209,7 +209,7 @@ async def test_view_run_error_uses_message_field(settings):
         raise RuntimeError("boom")
         yield  # pragma: no cover
 
-    view = create_agui_view(agent).as_view()
+    view = AGUIView.as_view(run_agent=agent)
     factory = AsyncRequestFactory()
     request = factory.generic(
         "POST",
@@ -242,7 +242,7 @@ async def test_view_timeout_emits_run_error(settings):
             delta="too-late",
         )
 
-    view = create_agui_view(slow_agent).as_view()
+    view = AGUIView.as_view(run_agent=slow_agent)
     factory = AsyncRequestFactory()
     request = factory.generic(
         "POST",
@@ -273,7 +273,7 @@ async def test_view_keepalive_does_not_cancel_slow_agent(settings):
             delta="event-after-keepalive",
         )
 
-    view = create_agui_view(slow_agent).as_view()
+    view = AGUIView.as_view(run_agent=slow_agent)
     factory = AsyncRequestFactory()
     request = factory.generic(
         "POST",
@@ -299,7 +299,7 @@ async def test_view_auto_error_policy_uses_debug_setting(settings):
         raise RuntimeError("debug-boom")
         yield  # pragma: no cover
 
-    view = create_agui_view(agent).as_view()
+    view = AGUIView.as_view(run_agent=agent)
     factory = AsyncRequestFactory()
     request = factory.generic(
         "POST",
@@ -329,7 +329,7 @@ async def test_view_state_save_policy_disabled(settings):
             delta="ok",
         )
 
-    view = create_agui_view(agent).as_view()
+    view = AGUIView.as_view(run_agent=agent)
     factory = AsyncRequestFactory()
     request = factory.generic(
         "POST",
@@ -360,7 +360,7 @@ async def test_view_state_save_policy_on_snapshot(settings):
             snapshot={"foo": "bar"},
         )
 
-    view = create_agui_view(agent).as_view()
+    view = AGUIView.as_view(run_agent=agent)
     factory = AsyncRequestFactory()
     request = factory.generic(
         "POST",
@@ -391,7 +391,7 @@ async def test_view_state_none_is_not_saved_without_delete_method(settings):
             delta="ok",
         )
 
-    view = create_agui_view(agent).as_view()
+    view = AGUIView.as_view(run_agent=agent)
     factory = AsyncRequestFactory()
     request = factory.generic(
         "POST",
@@ -422,7 +422,7 @@ async def test_view_options_does_not_require_auth(settings):
             delta="ok",
         )
 
-    view = create_agui_view(agent).as_view()
+    view = AGUIView.as_view(run_agent=agent)
     factory = AsyncRequestFactory()
     request = factory.options(
         "/agent/",
@@ -447,7 +447,7 @@ async def test_view_error_response_includes_cors_headers(settings):
             delta="ok",
         )
 
-    view = create_agui_view(agent).as_view()
+    view = AGUIView.as_view(run_agent=agent)
     factory = AsyncRequestFactory()
     request = factory.post(
         "/agent/",
@@ -493,7 +493,7 @@ async def test_invalid_allowed_origins_returns_500(settings):
             delta="ok",
         )
 
-    view = create_agui_view(agent).as_view()
+    view = AGUIView.as_view(run_agent=agent)
     factory = AsyncRequestFactory()
     request = factory.generic(
         "POST",

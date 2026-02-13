@@ -2,12 +2,11 @@
 
 import pytest
 
-# Skip all tests if DRF is not installed
-drf = pytest.importorskip("rest_framework")
+pytest.importorskip("rest_framework")
 
 from ag_ui.core import EventType, TextMessageContentEvent
 
-from django_agui.contrib.drf import DRFBackend, get_drf_urlpatterns, create_drf_view
+from django_agui.contrib.drf import DRFBackend, create_drf_view, get_drf_urlpatterns
 
 
 class TestDRFBackend:
@@ -15,7 +14,7 @@ class TestDRFBackend:
 
     @pytest.mark.asyncio
     async def test_backend_create_view(self):
-        """Test creating DRF view."""
+        """Test creating DRF view class."""
 
         async def dummy_agent(input_data, request):
             yield TextMessageContentEvent(
@@ -32,7 +31,7 @@ class TestDRFBackend:
 
     @pytest.mark.asyncio
     async def test_backend_create_view_with_options(self):
-        """Test creating DRF view with options."""
+        """Test creating DRF view class with options."""
 
         async def dummy_agent(input_data, request):
             yield TextMessageContentEvent(
@@ -69,6 +68,7 @@ class TestDRFBackend:
 
         assert len(patterns) == 1
         assert str(patterns[0].pattern) == "agent/"
+        assert patterns[0].name == "agui-drf-agent"
 
 
 class TestDRFShortcuts:

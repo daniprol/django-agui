@@ -1,8 +1,7 @@
 """Unit tests for django-agui URL routing."""
 
-import pytest
-
 from ag_ui.core import EventType, TextMessageContentEvent
+import pytest
 
 from django_agui.urls import AGUIRouter, get_agui_urlpatterns
 
@@ -24,8 +23,9 @@ class TestAGUIRouter:
         router = AGUIRouter()
         router.register("echo", dummy_agent)
 
-        assert "echo" in router._agents
-        assert router._agents["echo"].run_agent == dummy_agent
+        assert len(router._routes) == 1
+        assert router._routes[0].path_prefix == "echo"
+        assert router._routes[0].run_agent == dummy_agent
 
     @pytest.mark.asyncio
     async def test_router_register_multiple_agents(self):
@@ -49,9 +49,9 @@ class TestAGUIRouter:
         router.register("agent1", agent1)
         router.register("agent2", agent2)
 
-        assert "agent1" in router._agents
-        assert "agent2" in router._agents
-        assert len(router._agents) == 2
+        assert len(router._routes) == 2
+        assert router._routes[0].path_prefix == "agent1"
+        assert router._routes[1].path_prefix == "agent2"
 
     @pytest.mark.asyncio
     async def test_router_urls_property(self):
@@ -70,6 +70,7 @@ class TestAGUIRouter:
         urls = router.urls
         assert len(urls) == 1
         assert str(urls[0].pattern) == "echo/"
+        assert urls[0].name == "agui-echo"
 
     @pytest.mark.asyncio
     async def test_router_register_with_options(self):
@@ -90,9 +91,9 @@ class TestAGUIRouter:
             allowed_origins=["https://example.com"],
         )
 
-        metadata = router._agents["protected"]
-        assert metadata.auth_required is True
-        assert metadata.allowed_origins == ["https://example.com"]
+        route = router._routes[0]
+        assert route.auth_required is True
+        assert route.allowed_origins == ["https://example.com"]
 
 
 class TestGetAguiUrlPatterns:
@@ -116,6 +117,7 @@ class TestGetAguiUrlPatterns:
 
         assert len(patterns) == 1
         assert str(patterns[0].pattern) == "agent/"
+        assert patterns[0].name == "agui-agent"
 
     @pytest.mark.asyncio
     async def test_url_pattern_with_slash_prefix(self):
@@ -153,3 +155,21 @@ class TestGetAguiUrlPatterns:
         )
 
         assert len(patterns) == 1
+
+    @pytest.mark.asyncio
+    async def test_route_names_are_unique_by_path(self):
+        """Route names should include path suffix to avoid collisions."""
+
+        async def dummy_agent(input_data, request):
+            yield TextMessageContentEvent(
+                type=EventType.TEXT_MESSAGE_CONTENT,
+                message_id="msg-1",
+                delta="Hello",
+            )
+
+        router = AGUIRouter()
+        router.register("alpha", dummy_agent)
+        router.register("beta", dummy_agent)
+
+        names = [pattern.name for pattern in router.urls]
+        assert names == ["agui-alpha", "agui-beta"]

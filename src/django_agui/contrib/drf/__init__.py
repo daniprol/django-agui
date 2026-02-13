@@ -6,14 +6,13 @@ from collections.abc import Callable
 from typing import Any
 
 try:
-    # These imports require djangorestframework to be installed
     from django_agui.contrib.drf.backend import DRFBackend
     from django_agui.contrib.drf.views import AGUIRestView, AGUIView
-except ImportError as e:
+except ImportError as exc:
     raise ImportError(
         "Django REST Framework is not installed. "
         "Install it with: pip install djangorestframework"
-    ) from e
+    ) from exc
 
 __all__ = [
     "DRFBackend",
@@ -30,21 +29,8 @@ def get_drf_urlpatterns(
     streaming: bool = True,
     **kwargs: Any,
 ) -> list:
-    """Get DRF URL patterns for an agent.
-
-    Shortcut function to quickly get URL patterns for DRF.
-
-    Args:
-        path_prefix: URL path prefix (e.g., "agent/")
-        run_agent: Async function that runs the agent
-        streaming: If True, use SSE streaming. If False, REST response.
-        **kwargs: Additional options
-
-    Returns:
-        List of Django URL patterns
-    """
-    backend = DRFBackend()
-    return backend.get_urlpatterns(
+    """Shortcut for ``DRFBackend().get_urlpatterns(...)``."""
+    return DRFBackend().get_urlpatterns(
         path_prefix=path_prefix,
         run_agent=run_agent,
         streaming=streaming,
@@ -57,20 +43,8 @@ def create_drf_view(
     streaming: bool = True,
     **kwargs: Any,
 ) -> type:
-    """Create a DRF view class.
-
-    Shortcut function to create a DRF view.
-
-    Args:
-        run_agent: Async function that runs the agent
-        streaming: If True, use SSE streaming. If False, REST response.
-        **kwargs: Additional options
-
-    Returns:
-        DRF view class
-    """
-    backend = DRFBackend()
-    return backend.create_view(
+    """Shortcut for ``DRFBackend().create_view(...)``."""
+    return DRFBackend().create_view(
         run_agent=run_agent,
         streaming=streaming,
         **kwargs,

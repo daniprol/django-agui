@@ -37,8 +37,10 @@ class _FakeRequest:
         body: bytes | None = None,
         content_type: str = "application/json",
         path: str = "/agent/",
+        method: str = "POST",
     ) -> None:
         self.path = path
+        self.method = method
         self.content_type = content_type
         self.body = body or b""
         self.headers: dict[str, str] = {}
@@ -96,7 +98,21 @@ def _install_fake_rest_framework(monkeypatch: pytest.MonkeyPatch) -> None:
     views_mod = types.ModuleType("rest_framework.views")
 
     class _APIView:
-        pass
+        def __init__(self, **kwargs):
+            for key, value in kwargs.items():
+                setattr(self, key, value)
+
+        @classmethod
+        def as_view(cls, **initkwargs):
+            async def _view(request, *args, **kwargs):
+                self = cls(**initkwargs)
+                handler = getattr(self, request.method.lower())
+                result = handler(request, *args, **kwargs)
+                if hasattr(result, "__await__"):
+                    return await result
+                return result
+
+            return _view
 
     views_mod.APIView = _APIView
 

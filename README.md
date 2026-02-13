@@ -164,7 +164,8 @@ from django_agui.contrib.bolt import BoltBackend
 
 # DRF
 drf_backend = DRFBackend()
-view = drf_backend.create_view(run_agent=my_agent, streaming=True)
+view_class = drf_backend.create_view(run_agent=my_agent, streaming=True)
+view = view_class.as_view()
 
 # Ninja
 ninja_backend = NinjaBackend()
@@ -174,6 +175,33 @@ api = ninja_backend.create_api(run_agent=my_agent)
 bolt_backend = BoltBackend()
 api = bolt_backend.create_api(run_agent=my_agent)
 ```
+
+### Subclassing and Custom Logic
+
+The core views and routers expose straightforward hook methods for customization.
+
+```python
+from django_agui.views import AGUIView
+from django_agui.urls import AGUIRouter
+
+
+class MyAGUIView(AGUIView):
+    def get_auth_required(self, request):
+        # Example: enforce auth only for specific paths
+        return request.path.startswith("/private/")
+
+
+class MyRouter(AGUIRouter):
+    view_class = MyAGUIView
+
+
+router = MyRouter()
+router.register("agent", run_agent=my_agent)
+urlpatterns = router.urls
+```
+
+For DRF, you can subclass and plug your own view classes through `DRFBackend.streaming_view_class`
+and `DRFBackend.rest_view_class`.
 
 ## Configuration
 

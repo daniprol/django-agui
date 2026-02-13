@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-import inspect
 import logging
 from typing import Any
 
+from django.core.exceptions import ImproperlyConfigured
 from django.http import StreamingHttpResponse
 from rest_framework import status
 from rest_framework.request import Request
@@ -20,9 +20,11 @@ from django_agui.runtime import (
     enforce_origin_and_auth,
     ensure_json_content_type,
     get_cors_headers,
+    get_error_message,
     get_request_origin,
     parse_run_input_json,
     resolve_allowed_origins,
+    resolve_error_policy,
 )
 
 logger = logging.getLogger(__name__)
@@ -31,7 +33,7 @@ logger = logging.getLogger(__name__)
 class AGUIBaseView(APIView):
     """Base class for DRF AG-UI views."""
 
-    run_agent: Callable[..., Any] = None
+    run_agent: Callable[..., Any] | None = None
     translate_event: Callable[[Any], Any] | None = None
     get_system_message: Callable[[Any], str | None] | None = None
     auth_required: bool = False
@@ -40,152 +42,146 @@ class AGUIBaseView(APIView):
     error_detail_policy: str | None = None
     state_save_policy: str | None = None
 
-    def get_agent(self, request: Request) -> Callable[..., Any]:
-        """Get the agent function."""
-        if inspect.ismethod(self.run_agent):
-            return self.run_agent.__func__
+    def get_run_agent(self, request: Request) -> Callable[..., Any] | None:
+        """Return the configured agent callable."""
         return self.run_agent
 
-    def get_translator(self, request: Request) -> Callable[[Any], Any] | None:
-        """Get the event translator."""
-        if self.translate_event is None:
-            return None
-        if inspect.ismethod(self.translate_event):
-            return self.translate_event.__func__
-        return self.translate_event
-
-    def _apply_cors_headers(self, response: Any, request: Request) -> None:
-        origin = get_request_origin(request)
-        allowed_origins = resolve_allowed_origins(self.allowed_origins)
-        for key, value in get_cors_headers(origin, allowed_origins).items():
-            response[key] = value
-
-    def _error_response(
+    def get_translate_event(
         self,
         request: Request,
-        message: str,
+    ) -> Callable[[Any], Any] | None:
+        """Return the optional event translator."""
+        return self.translate_event
+
+    def get_auth_required(self, request: Request) -> bool:
+        """Return whether auth is required for this request."""
+        return self.auth_required
+
+    def get_allowed_origins(self, request: Request) -> list[str] | None:
+        """Resolve allowed CORS origins for this request."""
+        return resolve_allowed_origins(self.allowed_origins)
+
+    def parse_input(self, request: Request):
+        """Parse and validate AG-UI input data."""
+        ensure_json_content_type(request.content_type)
+        enforce_max_content_length(request)
+        return parse_run_input_json(request.body)
+
+    def get_runner(
+        self,
+        request: Request,
         *,
-        status_code: int = status.HTTP_400_BAD_REQUEST,
-    ) -> Response:
-        response = Response({"error": message}, status=status_code)
-        self._apply_cors_headers(response, request)
-        return response
-
-    def _validate_origin_and_auth(self, request: Request) -> Response | None:
-        try:
-            enforce_origin_and_auth(
-                request,
-                auth_required=self.auth_required,
-                allowed_origins=self.allowed_origins,
-            )
-        except AGUIRequestError as exc:
-            return self._error_response(
-                request,
-                exc.message,
-                status_code=exc.status_code,
-            )
-        return None
-
-    def options(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        """Handle CORS preflight requests."""
-        response = Response(status=status.HTTP_204_NO_CONTENT)
-        self._apply_cors_headers(response, request)
-        return response
-
-
-class AGUIView(AGUIBaseView):
-    """DRF AG-UI view with SSE streaming."""
-
-    async def post(self, request: Request) -> Response:
-        """Handle POST request with AG-UI RunAgentInput."""
-        agent = self.get_agent(request)
-        if agent is None:
-            return Response(
-                {"error": "Agent not configured"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
-
-        origin_or_auth_error = self._validate_origin_and_auth(request)
-        if origin_or_auth_error is not None:
-            return origin_or_auth_error
-
-        try:
-            ensure_json_content_type(request.content_type)
-            enforce_max_content_length(request)
-            input_data = parse_run_input_json(request.body)
-        except AGUIRequestError as exc:
-            return self._error_response(
-                request,
-                exc.message,
-                status_code=exc.status_code,
-            )
-
-        runner = AGUIRunner(
-            run_agent=agent,
+        run_agent: Callable[..., Any],
+    ) -> AGUIRunner:
+        """Build the AG-UI runner."""
+        return AGUIRunner(
+            run_agent=run_agent,
             request=request,
-            translate_event=self.get_translator(request),
+            translate_event=self.get_translate_event(request),
             get_system_message=self.get_system_message,
             emit_run_lifecycle_events=self.emit_run_lifecycle_events,
             error_detail_policy=self.error_detail_policy,
             state_save_policy=self.state_save_policy,
         )
 
-        response = StreamingHttpResponse(
-            runner.stream(input_data),
-            content_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "X-Accel-Buffering": "no",
-            },
+    def apply_cors_headers(
+        self,
+        response: Any,
+        *,
+        origin: str | None,
+        allowed_origins: list[str] | None,
+    ) -> None:
+        """Apply CORS headers to a DRF/Django response."""
+        for key, value in get_cors_headers(origin, allowed_origins).items():
+            response[key] = value
+
+    def error_response(
+        self,
+        message: str,
+        *,
+        status_code: int,
+        origin: str | None,
+        allowed_origins: list[str] | None,
+    ) -> Response:
+        """Build an error response with CORS headers."""
+        response = Response({"error": message}, status=status_code)
+        self.apply_cors_headers(
+            response,
+            origin=origin,
+            allowed_origins=allowed_origins,
         )
-        self._apply_cors_headers(response, request)
         return response
 
-
-class AGUIRestView(AGUIBaseView):
-    """DRF AG-UI view returning REST response (non-streaming)."""
-
-    async def post(self, request: Request) -> Response:
-        """Handle POST request with AG-UI RunAgentInput."""
-        agent = self.get_agent(request)
-        if agent is None:
-            return Response(
-                {"error": "Agent not configured"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
-
-        origin_or_auth_error = self._validate_origin_and_auth(request)
-        if origin_or_auth_error is not None:
-            return origin_or_auth_error
+    async def _handle_post(
+        self,
+        request: Request,
+        *,
+        streaming: bool,
+    ) -> Response | StreamingHttpResponse:
+        origin = get_request_origin(request)
 
         try:
-            ensure_json_content_type(request.content_type)
-            enforce_max_content_length(request)
-            input_data = parse_run_input_json(request.body)
-        except AGUIRequestError as exc:
-            return self._error_response(
+            allowed_origins = self.get_allowed_origins(request)
+        except ImproperlyConfigured:
+            logger.exception("Invalid AG-UI CORS configuration")
+            return self.error_response(
+                "Internal server error",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                origin=origin,
+                allowed_origins=None,
+            )
+
+        run_agent = self.get_run_agent(request)
+        if run_agent is None:
+            return self.error_response(
+                "Agent not configured",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                origin=origin,
+                allowed_origins=allowed_origins,
+            )
+
+        try:
+            origin, allowed_origins = enforce_origin_and_auth(
                 request,
+                auth_required=self.get_auth_required(request),
+                allowed_origins=allowed_origins,
+            )
+            input_data = self.parse_input(request)
+        except AGUIRequestError as exc:
+            return self.error_response(
                 exc.message,
                 status_code=exc.status_code,
+                origin=origin,
+                allowed_origins=allowed_origins,
             )
+
+        runner = self.get_runner(request, run_agent=run_agent)
+
+        if streaming:
+            response = StreamingHttpResponse(
+                runner.stream(input_data),
+                content_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "X-Accel-Buffering": "no",
+                },
+            )
+            self.apply_cors_headers(
+                response,
+                origin=origin,
+                allowed_origins=allowed_origins,
+            )
+            return response
 
         try:
-            runner = AGUIRunner(
-                run_agent=agent,
-                request=request,
-                translate_event=self.get_translator(request),
-                get_system_message=self.get_system_message,
-                emit_run_lifecycle_events=self.emit_run_lifecycle_events,
-                error_detail_policy=self.error_detail_policy,
-                state_save_policy=self.state_save_policy,
-            )
             collected = await runner.collect(input_data)
-
             response = Response(
                 {
                     "thread_id": collected.thread_id,
                     "run_id": collected.run_id,
-                    "events": [e.model_dump(mode="json") for e in collected.events],
+                    "events": [
+                        event.model_dump(mode="json") for event in collected.events
+                    ],
                 },
                 status=(
                     status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -193,13 +189,51 @@ class AGUIRestView(AGUIBaseView):
                     else status.HTTP_200_OK
                 ),
             )
-            self._apply_cors_headers(response, request)
-            return response
-
-        except Exception as exc:
-            logger.exception("Error during agent execution")
-            return self._error_response(
-                request,
-                str(exc),
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            self.apply_cors_headers(
+                response,
+                origin=origin,
+                allowed_origins=allowed_origins,
             )
+            return response
+        except Exception as exc:
+            logger.exception("Unhandled error while processing DRF AG-UI request")
+            error_policy = resolve_error_policy(self.error_detail_policy)
+            return self.error_response(
+                get_error_message(exc, policy=error_policy),
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                origin=origin,
+                allowed_origins=allowed_origins,
+            )
+
+    def options(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Handle CORS preflight requests."""
+        origin = get_request_origin(request)
+        try:
+            allowed_origins = self.get_allowed_origins(request)
+        except ImproperlyConfigured:
+            logger.exception("Invalid AG-UI CORS configuration")
+            return Response(status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        response = Response(status=status.HTTP_204_NO_CONTENT)
+        self.apply_cors_headers(
+            response,
+            origin=origin,
+            allowed_origins=allowed_origins,
+        )
+        return response
+
+
+class AGUIView(AGUIBaseView):
+    """DRF AG-UI view with SSE streaming."""
+
+    async def post(self, request: Request, *args: Any, **kwargs: Any):
+        """Handle streaming POST requests."""
+        return await self._handle_post(request, streaming=True)
+
+
+class AGUIRestView(AGUIBaseView):
+    """DRF AG-UI view returning JSON events (non-streaming)."""
+
+    async def post(self, request: Request, *args: Any, **kwargs: Any):
+        """Handle non-streaming POST requests."""
+        return await self._handle_post(request, streaming=False)

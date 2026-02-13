@@ -41,7 +41,7 @@ class AGUIBackend(Protocol):
             **kwargs: Additional framework-specific options
 
         Returns:
-            View class or callable for this framework
+            Framework-specific view callable or view class
         """
         ...
 

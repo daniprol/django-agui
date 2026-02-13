@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
-from django_agui.views import create_agui_view
+from django_agui.views import AGUIView
 
 
 def agui_view(
@@ -17,25 +18,10 @@ def agui_view(
     error_detail_policy: str | None = None,
     state_save_policy: str | None = None,
 ) -> Callable[..., Any]:
-    """Decorator to create an AG-UI view from an async agent function.
-
-    Usage:
-        @agui_view()
-        async def my_agent(input_data, request):
-            yield TextMessageContentEvent(...)
-
-        # In urls.py:
-        path('agent/', my_agent)
-
-    Or with options:
-        @agui_view(auth_required=True)
-        async def my_agent(input_data, request):
-            yield TextMessageContentEvent(...)
-    """
+    """Decorate an agent function and return a Django view callable."""
 
     def decorator(func: Callable[..., Any]) -> Any:
-        # Create a view class configured with the agent
-        view_class = create_agui_view(
+        return AGUIView.as_view(
             run_agent=func,
             translate_event=translate_event,
             get_system_message=get_system_message,
@@ -45,8 +31,5 @@ def agui_view(
             error_detail_policy=error_detail_policy,
             state_save_policy=state_save_policy,
         )
-
-        # Return the as_view() callable for use in URL patterns
-        return view_class.as_view()
 
     return decorator
