@@ -1,4 +1,4 @@
-"""URL configuration for example app."""
+"""URL configuration for playground example app."""
 
 from django.urls import include, path
 from django.views.generic import TemplateView

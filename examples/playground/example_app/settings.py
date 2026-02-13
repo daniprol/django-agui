@@ -1,10 +1,11 @@
-"""Example Django app for framework integrations."""
+"""Django settings for playground example."""
 
 import os
 from pathlib import Path
 
-import django
-from django.core.management import execute_from_command_line
+from dotenv import load_dotenv
+
+load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -17,9 +18,9 @@ ALLOWED_HOSTS = ["*"]
 INSTALLED_APPS = [
     "django.contrib.contenttypes",
     "django.contrib.auth",
+    "django.contrib.staticfiles",
     "rest_framework",
     "django_vite",
-    "django_agui",
     "example_app",
 ]
 
@@ -60,34 +61,41 @@ USE_TZ = True
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
+# Static files (Vite build output)
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
-STATICFILES_DIRS = [BASE_DIR / "static"]
+STATICFILES_DIRS = [
+    BASE_DIR / "static",
+]
 
+# Django Vite configuration
+DJANGO_VITE = {
+    "default": {
+        "dev_mode": DEBUG,
+        "dev_server_port": 5173,
+        "dev_server_host": "localhost",
+    }
+}
+
+# REST Framework
 REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.AllowAny",
     ],
 }
 
+# OpenAI Configuration
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY", "")
 AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT", "")
 AZURE_OPENAI_DEPLOYMENT = os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o")
 
-DJANGO_VITE = {
-    "default": {
-        "dev_mode": DEBUG,
-        "dev_server_port": 5173,
-        "dev_server_host": "localhost",
-        "static_url_prefix": "static/",
-    }
-}
-
+# AG-UI Configuration
 AGUI = {
     "USE_DB_STORAGE": os.getenv("AGUI_USE_DB_STORAGE", "false").lower() == "true",
 }
 
+# Agent Configuration
 AGUI_AGENTS = {
     "langgraph-assistant": {
         "framework": "langgraph",
@@ -110,9 +118,3 @@ AGUI_AGENTS = {
         "description": "Agno assistant agent",
     },
 }
-
-django.setup()
-
-
-if __name__ == "__main__":
-    execute_from_command_line()

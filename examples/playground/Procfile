@@ -1,0 +1,6 @@
+# Procfile for foreman
+# Install foreman: pip install foreman
+# Run with: foreman start
+
+web: python manage.py runserver
+vite: cd frontend && npm run dev
