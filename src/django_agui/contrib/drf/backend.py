@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
-from django_agui.contrib.drf.views import AGUIView, AGUIRestView
+from django_agui.contrib.drf.views import AGUIRestView, AGUIView
 
 
 class DRFBackend:
@@ -25,6 +26,7 @@ class DRFBackend:
         allowed_origins: list[str] | None = None,
         emit_run_lifecycle_events: bool | None = None,
         error_detail_policy: str | None = None,
+        state_save_policy: str | None = None,
         streaming: bool = True,
         **kwargs: Any,
     ) -> type:
@@ -38,6 +40,7 @@ class DRFBackend:
             allowed_origins: CORS origins for this endpoint
             emit_run_lifecycle_events: Override lifecycle event emission
             error_detail_policy: "safe" or "full" error details in RUN_ERROR
+            state_save_policy: "always", "on_snapshot", or "disabled"
             streaming: If True, use SSE streaming. If False, use REST response.
             **kwargs: Additional options passed to the view
 
@@ -57,6 +60,7 @@ class DRFBackend:
         ConfiguredView.allowed_origins = allowed_origins
         ConfiguredView.emit_run_lifecycle_events = emit_run_lifecycle_events
         ConfiguredView.error_detail_policy = error_detail_policy
+        ConfiguredView.state_save_policy = state_save_policy
 
         # Apply any additional attributes from kwargs
         for key, value in kwargs.items():

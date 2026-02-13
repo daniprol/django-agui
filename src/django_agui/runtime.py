@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import asyncio
-import inspect
-import logging
 from collections.abc import AsyncIterator, Iterable
+from contextlib import suppress
 from dataclasses import dataclass
+import inspect
+import json
+import logging
 from typing import Any, Protocol
 
 from ag_ui.core import (
@@ -19,6 +21,8 @@ from ag_ui.core import (
     StateSnapshotEvent,
     SystemMessage,
 )
+from django.conf import settings as django_settings
+from django.core.exceptions import ImproperlyConfigured
 
 from django_agui.encoders import SSEEventEncoder
 from django_agui.settings import get_backend_class, get_setting
@@ -48,12 +52,102 @@ class AuthResult:
     user: Any = None
 
 
+@dataclass(slots=True)
+class AGUIRequestError(Exception):
+    """Request validation/authorization error."""
+
+    status_code: int
+    message: str
+
+
+@dataclass(slots=True)
+class AGUIExecutionConfig:
+    """Execution options resolved from settings and per-view overrides."""
+
+    keepalive_interval: int
+    timeout: int
+    emit_run_lifecycle_events: bool
+    error_detail_policy: str
+    state_save_policy: str
+
+    @classmethod
+    def from_settings(
+        cls,
+        *,
+        emit_run_lifecycle_events: bool | None = None,
+        error_detail_policy: str | None = None,
+        state_save_policy: str | None = None,
+    ) -> AGUIExecutionConfig:
+        """Build execution config from settings with optional overrides."""
+        resolved_emit = (
+            bool(get_setting("EMIT_RUN_LIFECYCLE_EVENTS", True))
+            if emit_run_lifecycle_events is None
+            else emit_run_lifecycle_events
+        )
+        resolved_error_policy = resolve_error_policy(error_detail_policy)
+        resolved_state_policy = resolve_state_save_policy(state_save_policy)
+
+        return cls(
+            keepalive_interval=int(get_setting("SSE_KEEPALIVE_INTERVAL", 30) or 0),
+            timeout=int(get_setting("SSE_TIMEOUT", 300) or 0),
+            emit_run_lifecycle_events=resolved_emit,
+            error_detail_policy=resolved_error_policy,
+            state_save_policy=resolved_state_policy,
+        )
+
+
+@dataclass(slots=True)
+class AGUICollectedRun:
+    """Result of non-streaming execution."""
+
+    thread_id: str
+    run_id: str
+    events: list[BaseEvent]
+    has_error: bool = False
+
+
+def _is_debug_mode() -> bool:
+    return bool(get_setting("DEBUG", False) or getattr(django_settings, "DEBUG", False))
+
+
+def resolve_error_policy(policy: str | None) -> str:
+    """Resolve runtime error detail policy.
+
+    Returns:
+        "safe" or "full"
+    """
+    configured = policy or str(get_setting("ERROR_DETAIL_POLICY", "auto"))
+    if configured == "auto":
+        return "full" if _is_debug_mode() else "safe"
+    if configured in {"safe", "full"}:
+        return configured
+    raise ImproperlyConfigured(
+        'AGUI.ERROR_DETAIL_POLICY must be one of: "auto", "safe", "full"'
+    )
+
+
+def resolve_state_save_policy(policy: str | None) -> str:
+    """Resolve state persistence policy."""
+    configured = policy or str(get_setting("STATE_SAVE_POLICY", "always"))
+    if configured not in {"always", "on_snapshot", "disabled"}:
+        raise ImproperlyConfigured(
+            'AGUI.STATE_SAVE_POLICY must be one of: "always", "on_snapshot", "disabled"'
+        )
+    return configured
+
+
 def is_json_content_type(content_type: str | None) -> bool:
     """Return True when request Content-Type is JSON (charset allowed)."""
     if not content_type:
         return False
     media_type = content_type.split(";", 1)[0].strip().lower()
     return media_type == "application/json"
+
+
+def ensure_json_content_type(content_type: str | None) -> None:
+    """Validate JSON request content type."""
+    if not is_json_content_type(content_type):
+        raise AGUIRequestError(400, "Content-Type must be application/json")
 
 
 def get_request_header(request: Any, key: str) -> str | None:
@@ -67,12 +161,13 @@ def get_request_header(request: Any, key: str) -> str | None:
             normalized = str(header_key).lower()
             if normalized == wanted or normalized == f"http-{wanted}":
                 return str(value)
-    meta_key = f"HTTP_{key.upper().replace('-', '_')}"
+
     meta = getattr(request, "META", {})
+    normalized = key.upper().replace("-", "_")
     return (
-        meta.get(meta_key)
-        or meta.get(key.upper().replace("-", "_"))
-        or meta.get(f"HTTP_{meta_key}")
+        meta.get(f"HTTP_{normalized}")
+        or meta.get(normalized)
+        or meta.get(f"HTTP_HTTP_{normalized}")
     )
 
 
@@ -83,14 +178,17 @@ def get_request_origin(request: Any) -> str | None:
 
 def resolve_allowed_origins(allowed_origins: list[str] | None) -> list[str] | None:
     """Resolve allowed origins from view overrides or global settings."""
-    if allowed_origins is not None:
-        return allowed_origins
-    global_origins = get_setting("ALLOWED_ORIGINS")
-    if global_origins is None:
+    raw_origins = allowed_origins
+    if raw_origins is None:
+        raw_origins = get_setting("ALLOWED_ORIGINS")
+
+    if raw_origins is None:
         return None
-    if isinstance(global_origins, (list, tuple)):
-        return [str(origin) for origin in global_origins]
-    return [str(global_origins)]
+
+    if not isinstance(raw_origins, (list, tuple)):
+        raise ImproperlyConfigured("AGUI.ALLOWED_ORIGINS must be a list or tuple")
+
+    return [str(origin) for origin in raw_origins]
 
 
 def is_origin_allowed(origin: str | None, allowed_origins: list[str] | None) -> bool:
@@ -102,6 +200,26 @@ def is_origin_allowed(origin: str | None, allowed_origins: list[str] | None) -> 
     if "*" in allowed_origins:
         return True
     return origin in allowed_origins
+
+
+def enforce_origin_and_auth(
+    request: Any,
+    *,
+    auth_required: bool = False,
+    allowed_origins: list[str] | None = None,
+) -> tuple[str | None, list[str] | None]:
+    """Validate CORS origin and authentication/authorization."""
+    origin = get_request_origin(request)
+    resolved_origins = resolve_allowed_origins(allowed_origins)
+
+    if not is_origin_allowed(origin, resolved_origins):
+        raise AGUIRequestError(403, "Origin not allowed")
+
+    auth = authenticate_request(request, auth_required=auth_required)
+    if not auth.allowed:
+        raise AGUIRequestError(auth.status_code or 401, auth.message or "Unauthorized")
+
+    return origin, resolved_origins
 
 
 def get_cors_headers(
@@ -128,14 +246,52 @@ def get_cors_headers(
     return headers
 
 
+def enforce_max_content_length(request: Any) -> None:
+    """Validate request payload against configured max size."""
+    max_content_length = get_setting("MAX_CONTENT_LENGTH", 10 * 1024 * 1024)
+    if max_content_length is None:
+        return
+
+    content_length = get_request_header(request, "Content-Length")
+    if not content_length:
+        return
+
+    try:
+        if int(content_length) > int(max_content_length):
+            raise AGUIRequestError(413, "Payload too large")
+    except ValueError:
+        return
+
+
+def parse_run_input_json(body: Any) -> RunAgentInput:
+    """Parse and validate JSON AG-UI request body."""
+    try:
+        return RunAgentInput.model_validate_json(body)
+    except json.JSONDecodeError as exc:
+        raise AGUIRequestError(400, f"Invalid JSON: {exc}") from exc
+    except Exception as exc:
+        raise AGUIRequestError(400, f"Invalid request: {exc}") from exc
+
+
+def parse_run_input_payload(payload: Any) -> RunAgentInput:
+    """Parse and validate Python object AG-UI payload."""
+    try:
+        return RunAgentInput.model_validate(payload)
+    except Exception as exc:
+        raise AGUIRequestError(400, f"Invalid request: {exc}") from exc
+
+
 def build_event_encoder() -> StreamEncoder:
     """Build event encoder from settings."""
     encoder_cls = get_backend_class("EVENT_ENCODER")
     if encoder_cls is None:
         return SSEEventEncoder()
+
     encoder = encoder_cls()
     if not hasattr(encoder, "encode"):
-        raise TypeError("EVENT_ENCODER must implement an encode(event) method")
+        raise ImproperlyConfigured(
+            "EVENT_ENCODER must implement an encode(event) method"
+        )
     if not hasattr(encoder, "encode_keepalive"):
         encoder.encode_keepalive = lambda: ": keepalive\n\n"  # type: ignore[attr-defined]
     return encoder
@@ -154,6 +310,7 @@ def authenticate_request(request: Any, *, auth_required: bool = False) -> AuthRe
     backend = _get_auth_backend()
 
     if backend is None:
+        request.agui_user = None
         if require_auth:
             return AuthResult(
                 allowed=False,
@@ -191,10 +348,9 @@ def _get_state_backend() -> Any | None:
     return state_backend_cls()
 
 
-def get_error_message(exc: Exception, *, policy: str | None = None) -> str:
-    """Build client-facing error message based on configured policy."""
-    resolved_policy = policy or str(get_setting("ERROR_DETAIL_POLICY", "safe"))
-    if resolved_policy == "full":
+def get_error_message(exc: Exception, *, policy: str) -> str:
+    """Build client-facing error message based on resolved policy."""
+    if policy == "full":
         return str(exc)
     return "Agent execution failed"
 
@@ -208,9 +364,11 @@ async def _maybe_await(value: Any) -> Any:
 async def _to_async_iterator(value: Any) -> AsyncIterator[Any]:
     if hasattr(value, "__aiter__"):
         return value
+
     resolved = await _maybe_await(value)
     if hasattr(resolved, "__aiter__"):
         return resolved
+
     if isinstance(resolved, Iterable):
 
         async def _iter_sync() -> AsyncIterator[Any]:
@@ -218,6 +376,7 @@ async def _to_async_iterator(value: Any) -> AsyncIterator[Any]:
                 yield item
 
         return _iter_sync()
+
     raise TypeError("Expected async iterator, awaitable async iterator, or iterable")
 
 
@@ -285,25 +444,20 @@ class AGUIRunner:
         get_system_message: Any = None,
         emit_run_lifecycle_events: bool | None = None,
         error_detail_policy: str | None = None,
+        state_save_policy: str | None = None,
     ) -> None:
         self.run_agent = run_agent
         self.request = request
         self.encoder = encoder or build_event_encoder()
         self.translate_event = translate_event
         self.get_system_message = get_system_message
-        self.emit_run_lifecycle_events = (
-            bool(get_setting("EMIT_RUN_LIFECYCLE_EVENTS", True))
-            if emit_run_lifecycle_events is None
-            else emit_run_lifecycle_events
+        self.config = AGUIExecutionConfig.from_settings(
+            emit_run_lifecycle_events=emit_run_lifecycle_events,
+            error_detail_policy=error_detail_policy,
+            state_save_policy=state_save_policy,
         )
-        self.error_detail_policy = (
-            str(get_setting("ERROR_DETAIL_POLICY", "safe"))
-            if error_detail_policy is None
-            else error_detail_policy
-        )
-        self.keepalive_interval = get_setting("SSE_KEEPALIVE_INTERVAL", 30)
-        self.timeout = get_setting("SSE_TIMEOUT", 300)
         self._last_state: Any = None
+        self._saw_state_snapshot = False
 
     async def _iter_events(self, input_data: RunAgentInput) -> AsyncIterator[BaseEvent]:
         run_agent = _unwrap_bound_callable(self.run_agent)
@@ -311,52 +465,113 @@ class AGUIRunner:
         agent_iter = await _to_async_iterator(agent_result)
         async for event in agent_iter:
             async for translated in _translate_events(event, self.translate_event):
-                if translated.type == EventType.STATE_SNAPSHOT:
-                    snapshot = translated
-                    if isinstance(snapshot, StateSnapshotEvent):
-                        self._last_state = snapshot.snapshot
+                if translated.type == EventType.STATE_SNAPSHOT and isinstance(
+                    translated, StateSnapshotEvent
+                ):
+                    self._last_state = translated.snapshot
+                    self._saw_state_snapshot = True
                 yield translated
 
     async def _iter_events_with_keepalive(
         self,
         events: AsyncIterator[BaseEvent],
     ) -> AsyncIterator[BaseEvent | None]:
-        keepalive = int(self.keepalive_interval) if self.keepalive_interval else 0
-        timeout = int(self.timeout) if self.timeout else 0
+        keepalive = self.config.keepalive_interval
+        timeout = self.config.timeout
 
         if keepalive <= 0 and timeout <= 0:
             async for event in events:
                 yield event
             return
 
-        started = asyncio.get_running_loop().time()
-        while True:
-            if timeout > 0:
-                elapsed = asyncio.get_running_loop().time() - started
-                if elapsed >= timeout:
-                    raise TimeoutError("AG-UI stream timed out")
+        loop = asyncio.get_running_loop()
+        started = loop.time()
+        next_event_task: asyncio.Task[BaseEvent] | None = None
 
-            wait_time: float | None = None
-            if keepalive > 0:
-                wait_time = float(keepalive)
-            if timeout > 0:
-                elapsed = asyncio.get_running_loop().time() - started
-                remaining = max(timeout - elapsed, 0.0)
-                wait_time = remaining if wait_time is None else min(wait_time, remaining)
+        try:
+            while True:
+                if timeout > 0:
+                    elapsed = loop.time() - started
+                    if elapsed >= timeout:
+                        raise TimeoutError("AG-UI stream timed out")
 
-            try:
+                wait_time: float | None = None
+                if keepalive > 0:
+                    wait_time = float(keepalive)
+                if timeout > 0:
+                    elapsed = loop.time() - started
+                    remaining = max(timeout - elapsed, 0.0)
+                    wait_time = (
+                        remaining if wait_time is None else min(wait_time, remaining)
+                    )
+
+                if next_event_task is None:
+                    next_event_task = asyncio.create_task(anext(events))
+
                 if wait_time is None:
-                    event = await anext(events)
-                else:
-                    event = await asyncio.wait_for(anext(events), timeout=wait_time)
-                yield event
-            except StopAsyncIteration:
-                return
-            except TimeoutError:
-                elapsed = asyncio.get_running_loop().time() - started
-                if timeout > 0 and elapsed >= timeout:
-                    raise
-                yield None
+                    try:
+                        yield await next_event_task
+                    except StopAsyncIteration:
+                        return
+                    finally:
+                        next_event_task = None
+                    continue
+
+                done, _ = await asyncio.wait({next_event_task}, timeout=wait_time)
+                if not done:
+                    elapsed = loop.time() - started
+                    if timeout > 0 and elapsed >= timeout:
+                        raise TimeoutError("AG-UI stream timed out")
+                    yield None
+                    continue
+
+                try:
+                    yield next_event_task.result()
+                except StopAsyncIteration:
+                    return
+                finally:
+                    next_event_task = None
+        finally:
+            if next_event_task is not None:
+                next_event_task.cancel()
+                with suppress(asyncio.CancelledError, StopAsyncIteration):
+                    await next_event_task
+
+    async def _persist_state(
+        self,
+        state_backend: Any | None,
+        *,
+        thread_id: str,
+        run_id: str,
+    ) -> None:
+        if state_backend is None:
+            return
+
+        policy = self.config.state_save_policy
+        if policy == "disabled":
+            return
+        if policy == "on_snapshot" and not self._saw_state_snapshot:
+            return
+
+        if self._last_state is None:
+            if hasattr(state_backend, "delete_state"):
+                await _maybe_await(state_backend.delete_state(thread_id))
+            return
+
+        await _maybe_await(
+            state_backend.save_state(
+                thread_id,
+                run_id,
+                self._last_state,
+            )
+        )
+
+    def _build_error_event(self, exc: Exception) -> RunErrorEvent:
+        return RunErrorEvent(
+            type=EventType.RUN_ERROR,
+            message=get_error_message(exc, policy=self.config.error_detail_policy),
+            code="timeout" if isinstance(exc, TimeoutError) else None,
+        )
 
     async def stream(self, input_data: RunAgentInput) -> AsyncIterator[str]:
         """Yield encoded AG-UI packets."""
@@ -368,7 +583,7 @@ class AGUIRunner:
         self._last_state = prepared_input.state
 
         try:
-            if self.emit_run_lifecycle_events:
+            if self.config.emit_run_lifecycle_events:
                 yield self.encoder.encode(
                     RunStartedEvent(
                         type=EventType.RUN_STARTED,
@@ -386,7 +601,7 @@ class AGUIRunner:
                     continue
                 yield self.encoder.encode(event)
 
-            if self.emit_run_lifecycle_events:
+            if self.config.emit_run_lifecycle_events:
                 yield self.encoder.encode(
                     RunFinishedEvent(
                         type=EventType.RUN_FINISHED,
@@ -396,22 +611,75 @@ class AGUIRunner:
                     )
                 )
 
-            if state_backend is not None and self._last_state is not None:
-                await _maybe_await(
-                    state_backend.save_state(
-                        prepared_input.thread_id,
-                        prepared_input.run_id,
-                        self._last_state,
-                    )
-                )
+            await self._persist_state(
+                state_backend,
+                thread_id=prepared_input.thread_id,
+                run_id=prepared_input.run_id,
+            )
 
         except Exception as exc:
             logger.exception("Error during agent execution")
-            code = "timeout" if isinstance(exc, TimeoutError) else None
-            yield self.encoder.encode(
-                RunErrorEvent(
-                    type=EventType.RUN_ERROR,
-                    message=get_error_message(exc, policy=self.error_detail_policy),
-                    code=code,
+            yield self.encoder.encode(self._build_error_event(exc))
+
+    async def collect(self, input_data: RunAgentInput) -> AGUICollectedRun:
+        """Collect AG-UI events for non-streaming responses."""
+        prepared_input, state_backend = await prepare_input(
+            input_data,
+            self.request,
+            self.get_system_message,
+        )
+        self._last_state = prepared_input.state
+
+        events: list[BaseEvent] = []
+
+        try:
+            if self.config.emit_run_lifecycle_events:
+                events.append(
+                    RunStartedEvent(
+                        type=EventType.RUN_STARTED,
+                        thread_id=prepared_input.thread_id,
+                        run_id=prepared_input.run_id,
+                        parent_run_id=prepared_input.parent_run_id,
+                    )
                 )
+
+            if self.config.timeout > 0:
+                async with asyncio.timeout(self.config.timeout):
+                    async for event in self._iter_events(prepared_input):
+                        events.append(event)
+            else:
+                async for event in self._iter_events(prepared_input):
+                    events.append(event)
+
+            if self.config.emit_run_lifecycle_events:
+                events.append(
+                    RunFinishedEvent(
+                        type=EventType.RUN_FINISHED,
+                        thread_id=prepared_input.thread_id,
+                        run_id=prepared_input.run_id,
+                        result=self._last_state,
+                    )
+                )
+
+            await self._persist_state(
+                state_backend,
+                thread_id=prepared_input.thread_id,
+                run_id=prepared_input.run_id,
+            )
+
+            return AGUICollectedRun(
+                thread_id=prepared_input.thread_id,
+                run_id=prepared_input.run_id,
+                events=events,
+                has_error=False,
+            )
+
+        except Exception as exc:
+            logger.exception("Error during agent execution")
+            events.append(self._build_error_event(exc))
+            return AGUICollectedRun(
+                thread_id=prepared_input.thread_id,
+                run_id=prepared_input.run_id,
+                events=events,
+                has_error=True,
             )

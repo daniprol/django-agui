@@ -193,12 +193,18 @@ AGUI = {
 
     # Runtime behavior
     "EMIT_RUN_LIFECYCLE_EVENTS": True,
-    "ERROR_DETAIL_POLICY": "safe",  # or "full"
+    "ERROR_DETAIL_POLICY": "auto",  # "auto", "safe", or "full"
+    "STATE_SAVE_POLICY": "always",  # "always", "on_snapshot", or "disabled"
 
     # Request limits
     "MAX_CONTENT_LENGTH": 10 * 1024 * 1024,
 }
 ```
+
+Notes:
+
+- `AUTH_BACKEND`, `EVENT_ENCODER`, and `STATE_BACKEND` must be import path strings or class types.
+- `ALLOWED_ORIGINS` must be a list/tuple (for example `["https://app.example.com"]`).
 
 ## Database Storage (Optional)
 

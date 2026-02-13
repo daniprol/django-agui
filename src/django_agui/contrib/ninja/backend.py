@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 
 class NinjaBackend:
@@ -23,6 +24,7 @@ class NinjaBackend:
         allowed_origins: list[str] | None = None,
         emit_run_lifecycle_events: bool | None = None,
         error_detail_policy: str | None = None,
+        state_save_policy: str | None = None,
         **kwargs: Any,
     ) -> Any:
         """Create a Django Ninja API instance.
@@ -35,6 +37,7 @@ class NinjaBackend:
             allowed_origins: CORS origins for this endpoint
             emit_run_lifecycle_events: Override lifecycle event emission
             error_detail_policy: "safe" or "full" RUN_ERROR payload policy
+            state_save_policy: "always", "on_snapshot", or "disabled"
             **kwargs: Additional options passed to NinjaAPI
 
         Returns:
@@ -42,11 +45,11 @@ class NinjaBackend:
         """
         try:
             from ninja import NinjaAPI
-        except ImportError:
+        except ImportError as exc:
             raise ImportError(
                 "Django Ninja is not installed. "
                 "Install it with: pip install django-ninja"
-            )
+            ) from exc
 
         from django_agui.contrib.ninja.views import create_ninja_endpoint
 
@@ -62,6 +65,7 @@ class NinjaBackend:
             allowed_origins=allowed_origins,
             emit_run_lifecycle_events=emit_run_lifecycle_events,
             error_detail_policy=error_detail_policy,
+            state_save_policy=state_save_policy,
         )
 
         # Register the endpoint

@@ -11,7 +11,6 @@ from typing import Any
 from django.conf import settings
 from django.utils.module_loading import import_string
 
-
 DEFAULTS: dict[str, Any] = {
     # Core settings
     "AUTH_BACKEND": "django_agui.backends.auth.DjangoAuthBackend",
@@ -27,7 +26,8 @@ DEFAULTS: dict[str, Any] = {
     "SSE_TIMEOUT": 300,
     # Runtime behavior
     "EMIT_RUN_LIFECYCLE_EVENTS": True,
-    "ERROR_DETAIL_POLICY": "safe",  # "safe" or "full"
+    "ERROR_DETAIL_POLICY": "auto",  # "auto", "safe", or "full"
+    "STATE_SAVE_POLICY": "always",  # "always", "on_snapshot", or "disabled"
     # Request limits
     "MAX_CONTENT_LENGTH": 10 * 1024 * 1024,
     # Framework backend classes (can be overridden)
@@ -78,4 +78,9 @@ def get_backend_class(setting_key: str) -> type | None:
         return import_string(backend_ref)
     if isinstance(backend_ref, type):
         return backend_ref
-    return backend_ref.__class__
+    raise TypeError(
+        "AGUI."
+        f"{setting_key}"
+        " must be an import path string or class type, got "
+        f"{type(backend_ref).__name__}"
+    )

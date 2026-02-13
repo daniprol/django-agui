@@ -19,6 +19,7 @@ def get_agui_urlpatterns(
     allowed_origins: list[str] | None = None,
     emit_run_lifecycle_events: bool | None = None,
     error_detail_policy: str | None = None,
+    state_save_policy: str | None = None,
 ) -> list:
     """Get URL patterns for a single AG-UI agent.
 
@@ -31,6 +32,7 @@ def get_agui_urlpatterns(
         allowed_origins: List of allowed CORS origins
         emit_run_lifecycle_events: Override lifecycle event emission
         error_detail_policy: "safe" or "full" RUN_ERROR payload policy
+        state_save_policy: "always", "on_snapshot", or "disabled"
 
     Returns:
         List of URL patterns
@@ -46,6 +48,7 @@ def get_agui_urlpatterns(
         allowed_origins=allowed_origins,
         emit_run_lifecycle_events=emit_run_lifecycle_events,
         error_detail_policy=error_detail_policy,
+        state_save_policy=state_save_policy,
     )
 
     return [
@@ -69,6 +72,7 @@ class AGUIRouter:
         allowed_origins: list[str] | None = None,
         emit_run_lifecycle_events: bool | None = None,
         error_detail_policy: str | None = None,
+        state_save_policy: str | None = None,
     ) -> None:
         """Register an agent with the router.
 
@@ -81,6 +85,7 @@ class AGUIRouter:
             allowed_origins: CORS origins
             emit_run_lifecycle_events: Override lifecycle event emission
             error_detail_policy: "safe" or "full" RUN_ERROR payload policy
+            state_save_policy: "always", "on_snapshot", or "disabled"
         """
         key = path_prefix.strip("/")
         self._agents[key] = AgentMetadata(
@@ -92,6 +97,7 @@ class AGUIRouter:
             allowed_origins=allowed_origins,
             emit_run_lifecycle_events=emit_run_lifecycle_events,
             error_detail_policy=error_detail_policy,
+            state_save_policy=state_save_policy,
         )
 
     @property
@@ -110,6 +116,7 @@ class AGUIRouter:
                     allowed_origins=metadata.allowed_origins,
                     emit_run_lifecycle_events=metadata.emit_run_lifecycle_events,
                     error_detail_policy=metadata.error_detail_policy,
+                    state_save_policy=metadata.state_save_policy,
                 )
             )
 

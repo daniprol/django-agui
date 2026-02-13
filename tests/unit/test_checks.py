@@ -21,3 +21,12 @@ def test_invalid_allowed_origins_type(settings):
     errors = check_agui_settings(None)
     ids = {error.id for error in errors}
     assert "django_agui.E003" in ids
+
+
+def test_invalid_state_save_policy(settings):
+    """Invalid STATE_SAVE_POLICY is reported."""
+    settings.AGUI = {"STATE_SAVE_POLICY": "sometimes"}
+
+    errors = check_agui_settings(None)
+    ids = {error.id for error in errors}
+    assert "django_agui.E004" in ids

@@ -24,6 +24,7 @@ class AGUIBackend(Protocol):
         allowed_origins: list[str] | None = None,
         emit_run_lifecycle_events: bool | None = None,
         error_detail_policy: str | None = None,
+        state_save_policy: str | None = None,
         **kwargs: Any,
     ) -> Any:
         """Create a view for this framework.
@@ -36,6 +37,7 @@ class AGUIBackend(Protocol):
             allowed_origins: CORS origins for this endpoint
             emit_run_lifecycle_events: Override lifecycle event emission
             error_detail_policy: "safe" or "full" RUN_ERROR payload policy
+            state_save_policy: "always", "on_snapshot", or "disabled"
             **kwargs: Additional framework-specific options
 
         Returns:

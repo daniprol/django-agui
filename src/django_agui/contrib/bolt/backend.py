@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 
 class BoltBackend:
@@ -23,6 +24,7 @@ class BoltBackend:
         allowed_origins: list[str] | None = None,
         emit_run_lifecycle_events: bool | None = None,
         error_detail_policy: str | None = None,
+        state_save_policy: str | None = None,
         **kwargs: Any,
     ) -> Any:
         """Create a Django Bolt API instance.
@@ -35,6 +37,7 @@ class BoltBackend:
             allowed_origins: CORS origins for this endpoint
             emit_run_lifecycle_events: Override lifecycle event emission
             error_detail_policy: "safe" or "full" RUN_ERROR payload policy
+            state_save_policy: "always", "on_snapshot", or "disabled"
             **kwargs: Additional options passed to BoltAPI
 
         Returns:
@@ -42,10 +45,10 @@ class BoltBackend:
         """
         try:
             from django_bolt import BoltAPI
-        except ImportError:
+        except ImportError as exc:
             raise ImportError(
                 "Django Bolt is not installed. Install it with: pip install django-bolt"
-            )
+            ) from exc
 
         from django_agui.contrib.bolt.views import create_bolt_endpoint
 
@@ -61,6 +64,7 @@ class BoltBackend:
             allowed_origins=allowed_origins,
             emit_run_lifecycle_events=emit_run_lifecycle_events,
             error_detail_policy=error_detail_policy,
+            state_save_policy=state_save_policy,
         )
 
         # Register the endpoint

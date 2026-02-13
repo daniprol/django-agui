@@ -1,17 +1,16 @@
 """Unit tests for django-agui core functionality."""
 
-import pytest
-from django.conf import settings
-
 from ag_ui.core import (
     EventType,
     TextMessageContentEvent,
     TextMessageStartEvent,
 )
+from django.conf import settings
+import pytest
 
 from django_agui import VERSION
 from django_agui.encoders import SSEEventEncoder
-from django_agui.settings import get_setting, get_agui_settings, get_backend_class
+from django_agui.settings import get_agui_settings, get_backend_class, get_setting
 
 
 class _DummyBackend:
@@ -116,6 +115,7 @@ class TestSettings:
         assert get_backend_class("TEST_BACKEND") is _DummyBackend
 
     def test_get_backend_class_from_instance(self):
-        """Test backend class from direct instance setting."""
+        """Backend class setting rejects direct instances."""
         settings.AGUI = {"TEST_BACKEND": _DummyBackend()}
-        assert get_backend_class("TEST_BACKEND") is _DummyBackend
+        with pytest.raises(TypeError):
+            get_backend_class("TEST_BACKEND")

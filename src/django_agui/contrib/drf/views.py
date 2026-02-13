@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 import inspect
-import json
 import logging
-from typing import Any, Callable
+from typing import Any
 
 from django.http import StreamingHttpResponse
 from rest_framework import status
@@ -13,23 +13,17 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from ag_ui.core import (
-    EventType,
-    RunAgentInput,
-    StateSnapshotEvent,
-)
-
 from django_agui.runtime import (
+    AGUIRequestError,
     AGUIRunner,
-    authenticate_request,
+    enforce_max_content_length,
+    enforce_origin_and_auth,
+    ensure_json_content_type,
     get_cors_headers,
     get_request_origin,
-    is_json_content_type,
-    is_origin_allowed,
-    prepare_input,
+    parse_run_input_json,
     resolve_allowed_origins,
 )
-from django_agui.settings import get_setting
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +38,7 @@ class AGUIBaseView(APIView):
     allowed_origins: list[str] | None = None
     emit_run_lifecycle_events: bool | None = None
     error_detail_policy: str | None = None
+    state_save_policy: str | None = None
 
     def get_agent(self, request: Request) -> Callable[..., Any]:
         """Get the agent function."""
@@ -59,13 +54,9 @@ class AGUIBaseView(APIView):
             return self.translate_event.__func__
         return self.translate_event
 
-    def get_allowed_origins(self) -> list[str] | None:
-        """Resolve CORS allowed origins."""
-        return resolve_allowed_origins(self.allowed_origins)
-
     def _apply_cors_headers(self, response: Any, request: Request) -> None:
         origin = get_request_origin(request)
-        allowed_origins = self.get_allowed_origins()
+        allowed_origins = resolve_allowed_origins(self.allowed_origins)
         for key, value in get_cors_headers(origin, allowed_origins).items():
             response[key] = value
 
@@ -81,21 +72,17 @@ class AGUIBaseView(APIView):
         return response
 
     def _validate_origin_and_auth(self, request: Request) -> Response | None:
-        origin = get_request_origin(request)
-        allowed_origins = self.get_allowed_origins()
-        if not is_origin_allowed(origin, allowed_origins):
-            return self._error_response(
+        try:
+            enforce_origin_and_auth(
                 request,
-                "Origin not allowed",
-                status_code=status.HTTP_403_FORBIDDEN,
+                auth_required=self.auth_required,
+                allowed_origins=self.allowed_origins,
             )
-
-        auth = authenticate_request(request, auth_required=self.auth_required)
-        if not auth.allowed:
+        except AGUIRequestError as exc:
             return self._error_response(
                 request,
-                auth.message or "Unauthorized",
-                status_code=auth.status_code or status.HTTP_401_UNAUTHORIZED,
+                exc.message,
+                status_code=exc.status_code,
             )
         return None
 
@@ -122,28 +109,16 @@ class AGUIView(AGUIBaseView):
         if origin_or_auth_error is not None:
             return origin_or_auth_error
 
-        if not is_json_content_type(request.content_type):
-            return self._error_response(request, "Content-Type must be application/json")
-
-        max_content_length = get_setting("MAX_CONTENT_LENGTH", 10 * 1024 * 1024)
-        content_length = request.headers.get("Content-Length")
-        if content_length and max_content_length is not None:
-            try:
-                if int(content_length) > int(max_content_length):
-                    return self._error_response(
-                        request,
-                        "Payload too large",
-                        status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                    )
-            except ValueError:
-                pass
-
         try:
-            input_data = RunAgentInput.model_validate_json(request.body)
-        except json.JSONDecodeError as exc:
-            return self._error_response(request, f"Invalid JSON: {exc}")
-        except Exception as exc:
-            return self._error_response(request, f"Invalid request: {exc}")
+            ensure_json_content_type(request.content_type)
+            enforce_max_content_length(request)
+            input_data = parse_run_input_json(request.body)
+        except AGUIRequestError as exc:
+            return self._error_response(
+                request,
+                exc.message,
+                status_code=exc.status_code,
+            )
 
         runner = AGUIRunner(
             run_agent=agent,
@@ -152,6 +127,7 @@ class AGUIView(AGUIBaseView):
             get_system_message=self.get_system_message,
             emit_run_lifecycle_events=self.emit_run_lifecycle_events,
             error_detail_policy=self.error_detail_policy,
+            state_save_policy=self.state_save_policy,
         )
 
         response = StreamingHttpResponse(
@@ -182,84 +158,48 @@ class AGUIRestView(AGUIBaseView):
         if origin_or_auth_error is not None:
             return origin_or_auth_error
 
-        if not is_json_content_type(request.content_type):
-            return self._error_response(request, "Content-Type must be application/json")
-
-        max_content_length = get_setting("MAX_CONTENT_LENGTH", 10 * 1024 * 1024)
-        content_length = request.headers.get("Content-Length")
-        if content_length and max_content_length is not None:
-            try:
-                if int(content_length) > int(max_content_length):
-                    return self._error_response(
-                        request,
-                        "Payload too large",
-                        status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                    )
-            except ValueError:
-                pass
-
         try:
-            input_data = RunAgentInput.model_validate_json(request.body)
-        except json.JSONDecodeError as exc:
-            return self._error_response(request, f"Invalid JSON: {exc}")
-        except Exception as exc:
-            return self._error_response(request, f"Invalid request: {exc}")
-
-        events = []
-        state_to_save = input_data.state
-
-        try:
-            prepared_input, state_backend = await prepare_input(
-                input_data,
+            ensure_json_content_type(request.content_type)
+            enforce_max_content_length(request)
+            input_data = parse_run_input_json(request.body)
+        except AGUIRequestError as exc:
+            return self._error_response(
                 request,
-                self.get_system_message,
+                exc.message,
+                status_code=exc.status_code,
             )
-            translator = self.get_translator(request)
-            async for event in agent(prepared_input, request):
-                if translator:
-                    async for translated in translator(event):
-                        if (
-                            translated.type == EventType.STATE_SNAPSHOT
-                            and isinstance(translated, StateSnapshotEvent)
-                        ):
-                            state_to_save = translated.snapshot
-                        events.append(translated)
-                else:
-                    if (
-                        event.type == EventType.STATE_SNAPSHOT
-                        and isinstance(event, StateSnapshotEvent)
-                    ):
-                        state_to_save = event.snapshot
-                    events.append(event)
 
-            if state_backend is not None and state_to_save is not None:
-                save_result = state_backend.save_state(
-                    prepared_input.thread_id,
-                    prepared_input.run_id,
-                    state_to_save,
-                )
-                if inspect.isawaitable(save_result):
-                    await save_result
+        try:
+            runner = AGUIRunner(
+                run_agent=agent,
+                request=request,
+                translate_event=self.get_translator(request),
+                get_system_message=self.get_system_message,
+                emit_run_lifecycle_events=self.emit_run_lifecycle_events,
+                error_detail_policy=self.error_detail_policy,
+                state_save_policy=self.state_save_policy,
+            )
+            collected = await runner.collect(input_data)
 
             response = Response(
                 {
-                    "thread_id": prepared_input.thread_id,
-                    "run_id": prepared_input.run_id,
-                    "events": [e.model_dump(mode="json") for e in events],
-                }
+                    "thread_id": collected.thread_id,
+                    "run_id": collected.run_id,
+                    "events": [e.model_dump(mode="json") for e in collected.events],
+                },
+                status=(
+                    status.HTTP_500_INTERNAL_SERVER_ERROR
+                    if collected.has_error
+                    else status.HTTP_200_OK
+                ),
             )
             self._apply_cors_headers(response, request)
             return response
 
         except Exception as exc:
             logger.exception("Error during agent execution")
-            response = Response(
-                {
-                    "error": str(exc),
-                    "thread_id": input_data.thread_id,
-                    "run_id": input_data.run_id,
-                },
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            return self._error_response(
+                request,
+                str(exc),
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
-            self._apply_cors_headers(response, request)
-            return response

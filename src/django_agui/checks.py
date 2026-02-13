@@ -42,11 +42,11 @@ def check_agui_settings(app_configs, **kwargs):
             )
 
     error_policy = agui_settings.get("ERROR_DETAIL_POLICY")
-    if error_policy is not None and error_policy not in {"safe", "full"}:
+    if error_policy is not None and error_policy not in {"auto", "safe", "full"}:
         errors.append(
             Error(
                 "Invalid AG-UI setting: ERROR_DETAIL_POLICY",
-                hint='Use "safe" or "full".',
+                hint='Use "auto", "safe", or "full".',
                 obj="django_agui.settings",
                 id="django_agui.E002",
             )
@@ -60,6 +60,21 @@ def check_agui_settings(app_configs, **kwargs):
                 hint="Use a list/tuple of origins or null.",
                 obj="django_agui.settings",
                 id="django_agui.E003",
+            )
+        )
+
+    state_save_policy = agui_settings.get("STATE_SAVE_POLICY")
+    if state_save_policy is not None and state_save_policy not in {
+        "always",
+        "on_snapshot",
+        "disabled",
+    }:
+        errors.append(
+            Error(
+                "Invalid AG-UI setting: STATE_SAVE_POLICY",
+                hint='Use "always", "on_snapshot", or "disabled".',
+                obj="django_agui.settings",
+                id="django_agui.E004",
             )
         )
 

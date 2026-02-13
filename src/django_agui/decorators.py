@@ -15,6 +15,7 @@ def agui_view(
     allowed_origins: list[str] | None = None,
     emit_run_lifecycle_events: bool | None = None,
     error_detail_policy: str | None = None,
+    state_save_policy: str | None = None,
 ) -> Callable[..., Any]:
     """Decorator to create an AG-UI view from an async agent function.
 
@@ -42,6 +43,7 @@ def agui_view(
             allowed_origins=allowed_origins,
             emit_run_lifecycle_events=emit_run_lifecycle_events,
             error_detail_policy=error_detail_policy,
+            state_save_policy=state_save_policy,
         )
 
         # Return the as_view() callable for use in URL patterns

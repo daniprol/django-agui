@@ -74,6 +74,7 @@ class AgentMetadata:
         allowed_origins: list[str] | None = None,
         emit_run_lifecycle_events: bool | None = None,
         error_detail_policy: str | None = None,
+        state_save_policy: str | None = None,
     ) -> None:
         self.path = path
         self.run_agent = run_agent
@@ -83,3 +84,4 @@ class AgentMetadata:
         self.allowed_origins = allowed_origins
         self.emit_run_lifecycle_events = emit_run_lifecycle_events
         self.error_detail_policy = error_detail_policy
+        self.state_save_policy = state_save_policy

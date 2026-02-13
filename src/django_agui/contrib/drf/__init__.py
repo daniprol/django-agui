@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 try:
     # These imports require djangorestframework to be installed
     from django_agui.contrib.drf.backend import DRFBackend
-    from django_agui.contrib.drf.views import AGUIView, AGUIRestView
+    from django_agui.contrib.drf.views import AGUIRestView, AGUIView
 except ImportError as e:
     raise ImportError(
         "Django REST Framework is not installed. "

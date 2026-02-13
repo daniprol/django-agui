@@ -2,18 +2,17 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
-from ag_ui.core import RunAgentInput
 from django.http import StreamingHttpResponse
 
 from django_agui.runtime import (
+    AGUIRequestError,
     AGUIRunner,
-    authenticate_request,
+    enforce_origin_and_auth,
     get_cors_headers,
-    get_request_origin,
-    is_origin_allowed,
-    resolve_allowed_origins,
+    parse_run_input_payload,
 )
 
 
@@ -25,6 +24,7 @@ def create_ninja_endpoint(
     allowed_origins: list[str] | None = None,
     emit_run_lifecycle_events: bool | None = None,
     error_detail_policy: str | None = None,
+    state_save_policy: str | None = None,
 ) -> Callable[..., Any]:
     """Create a Django Ninja endpoint function.
 
@@ -36,6 +36,7 @@ def create_ninja_endpoint(
         allowed_origins: CORS origins for this endpoint
         emit_run_lifecycle_events: Override lifecycle event emission
         error_detail_policy: "safe" or "full" RUN_ERROR payload policy
+        state_save_policy: "always", "on_snapshot", or "disabled"
 
     Returns:
         Async endpoint function for Django Ninja
@@ -43,25 +44,17 @@ def create_ninja_endpoint(
 
     async def agent_endpoint(request, body: dict) -> Any:
         """Ninja endpoint handler."""
-        origin = get_request_origin(request)
-        resolved_origins = resolve_allowed_origins(allowed_origins)
-        if not is_origin_allowed(origin, resolved_origins):
-            from ninja.errors import HttpError
-
-            raise HttpError(403, "Origin not allowed")
-
-        auth = authenticate_request(request, auth_required=auth_required)
-        if not auth.allowed:
-            from ninja.errors import HttpError
-
-            raise HttpError(auth.status_code or 401, auth.message or "Unauthorized")
-
         try:
-            input_data = RunAgentInput.model_validate(body)
-        except Exception as exc:
+            origin, resolved_origins = enforce_origin_and_auth(
+                request,
+                auth_required=auth_required,
+                allowed_origins=allowed_origins,
+            )
+            input_data = parse_run_input_payload(body)
+        except AGUIRequestError as exc:
             from ninja.errors import HttpError
 
-            raise HttpError(400, f"Invalid request: {exc}")
+            raise HttpError(exc.status_code, exc.message) from exc
 
         runner = AGUIRunner(
             run_agent=run_agent,
@@ -70,6 +63,7 @@ def create_ninja_endpoint(
             get_system_message=get_system_message,
             emit_run_lifecycle_events=emit_run_lifecycle_events,
             error_detail_policy=error_detail_policy,
+            state_save_policy=state_save_policy,
         )
         response = StreamingHttpResponse(
             runner.stream(input_data),
