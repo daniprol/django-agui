@@ -22,6 +22,9 @@ class DRFBackend:
         translate_event: Callable[[Any], Any] | None = None,
         get_system_message: Callable[[Any], str | None] | None = None,
         auth_required: bool = False,
+        allowed_origins: list[str] | None = None,
+        emit_run_lifecycle_events: bool | None = None,
+        error_detail_policy: str | None = None,
         streaming: bool = True,
         **kwargs: Any,
     ) -> type:
@@ -32,6 +35,9 @@ class DRFBackend:
             translate_event: Optional event translator
             get_system_message: Optional system message function
             auth_required: Whether authentication is required
+            allowed_origins: CORS origins for this endpoint
+            emit_run_lifecycle_events: Override lifecycle event emission
+            error_detail_policy: "safe" or "full" error details in RUN_ERROR
             streaming: If True, use SSE streaming. If False, use REST response.
             **kwargs: Additional options passed to the view
 
@@ -48,6 +54,9 @@ class DRFBackend:
         ConfiguredView.translate_event = translate_event
         ConfiguredView.get_system_message = get_system_message
         ConfiguredView.auth_required = auth_required
+        ConfiguredView.allowed_origins = allowed_origins
+        ConfiguredView.emit_run_lifecycle_events = emit_run_lifecycle_events
+        ConfiguredView.error_detail_policy = error_detail_policy
 
         # Apply any additional attributes from kwargs
         for key, value in kwargs.items():

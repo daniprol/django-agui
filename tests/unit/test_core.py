@@ -5,7 +5,6 @@ from django.conf import settings
 
 from ag_ui.core import (
     EventType,
-    RunAgentInput,
     TextMessageContentEvent,
     TextMessageStartEvent,
 )
@@ -13,6 +12,10 @@ from ag_ui.core import (
 from django_agui import VERSION
 from django_agui.encoders import SSEEventEncoder
 from django_agui.settings import get_setting, get_agui_settings, get_backend_class
+
+
+class _DummyBackend:
+    pass
 
 
 class TestVersion:
@@ -36,7 +39,7 @@ class TestSSEEncoder:
         )
         encoded = encoder.encode(event)
 
-        assert "data:" in encoded
+        assert encoded.startswith('data: {"')
         assert "TEXT_MESSAGE_START" in encoded
         assert "msg-1" in encoded
 
@@ -50,7 +53,7 @@ class TestSSEEncoder:
         )
         encoded = encoder.encode(event)
 
-        assert "data:" in encoded
+        assert encoded.startswith('data: {"')
         assert "TEXT_MESSAGE_CONTENT" in encoded
         assert "Hello world" in encoded
 
@@ -106,3 +109,13 @@ class TestSettings:
         settings.AGUI = {"TEST_BACKEND": "invalid.module.Class"}
         with pytest.raises(ImportError):
             get_backend_class("TEST_BACKEND")
+
+    def test_get_backend_class_from_type(self):
+        """Test backend class from direct type setting."""
+        settings.AGUI = {"TEST_BACKEND": _DummyBackend}
+        assert get_backend_class("TEST_BACKEND") is _DummyBackend
+
+    def test_get_backend_class_from_instance(self):
+        """Test backend class from direct instance setting."""
+        settings.AGUI = {"TEST_BACKEND": _DummyBackend()}
+        assert get_backend_class("TEST_BACKEND") is _DummyBackend

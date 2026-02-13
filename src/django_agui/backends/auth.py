@@ -23,6 +23,4 @@ class DjangoAuthBackend:
         By default, any authenticated user has access.
         Override this to implement custom permissions.
         """
-        if user is None:
-            return False
-        return True
+        return user is not None

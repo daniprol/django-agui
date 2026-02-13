@@ -6,7 +6,7 @@ for configuring django-agui backends and options.
 
 from __future__ import annotations
 
-from typing import Any, Type
+from typing import Any
 
 from django.conf import settings
 from django.utils.module_loading import import_string
@@ -25,6 +25,9 @@ DEFAULTS: dict[str, Any] = {
     # SSE settings
     "SSE_KEEPALIVE_INTERVAL": 30,
     "SSE_TIMEOUT": 300,
+    # Runtime behavior
+    "EMIT_RUN_LIFECYCLE_EVENTS": True,
+    "ERROR_DETAIL_POLICY": "safe",  # "safe" or "full"
     # Request limits
     "MAX_CONTENT_LENGTH": 10 * 1024 * 1024,
     # Framework backend classes (can be overridden)
@@ -59,7 +62,7 @@ def get_setting(key: str, default: Any = None) -> Any:
     return agui_settings.get(key, DEFAULTS.get(key, default))
 
 
-def get_backend_class(setting_key: str) -> Type | None:
+def get_backend_class(setting_key: str) -> type | None:
     """Import and return a backend class from settings.
 
     Args:
@@ -68,7 +71,11 @@ def get_backend_class(setting_key: str) -> Type | None:
     Returns:
         Backend class or None if not configured
     """
-    path = get_setting(setting_key)
-    if path is None:
+    backend_ref = get_setting(setting_key)
+    if backend_ref is None:
         return None
-    return import_string(path)
+    if isinstance(backend_ref, str):
+        return import_string(backend_ref)
+    if isinstance(backend_ref, type):
+        return backend_ref
+    return backend_ref.__class__

@@ -5,9 +5,8 @@ All framework backends must implement this interface.
 
 from __future__ import annotations
 
-from typing import Any, Callable, Protocol
-
-from ag_ui.core import RunAgentInput, BaseEvent
+from collections.abc import Callable
+from typing import Any, Protocol
 
 
 class AGUIBackend(Protocol):
@@ -22,6 +21,9 @@ class AGUIBackend(Protocol):
         translate_event: Callable[[Any], Any] | None = None,
         get_system_message: Callable[[Any], str | None] | None = None,
         auth_required: bool = False,
+        allowed_origins: list[str] | None = None,
+        emit_run_lifecycle_events: bool | None = None,
+        error_detail_policy: str | None = None,
         **kwargs: Any,
     ) -> Any:
         """Create a view for this framework.
@@ -31,6 +33,9 @@ class AGUIBackend(Protocol):
             translate_event: Optional event translator
             get_system_message: Optional system message function
             auth_required: Whether authentication is required
+            allowed_origins: CORS origins for this endpoint
+            emit_run_lifecycle_events: Override lifecycle event emission
+            error_detail_policy: "safe" or "full" RUN_ERROR payload policy
             **kwargs: Additional framework-specific options
 
         Returns:

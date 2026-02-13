@@ -2,21 +2,19 @@
 
 from __future__ import annotations
 
-import json
-import logging
 from typing import Any, Callable
 
-from ag_ui.core import (
-    EventType,
-    RunAgentInput,
-    RunErrorEvent,
-    RunFinishedEvent,
-    RunStartedEvent,
+from ag_ui.core import RunAgentInput
+from django.http import StreamingHttpResponse
+
+from django_agui.runtime import (
+    AGUIRunner,
+    authenticate_request,
+    get_cors_headers,
+    get_request_origin,
+    is_origin_allowed,
+    resolve_allowed_origins,
 )
-
-from django_agui.encoders import SSEEventEncoder
-
-logger = logging.getLogger(__name__)
 
 
 def create_ninja_endpoint(
@@ -24,6 +22,9 @@ def create_ninja_endpoint(
     translate_event: Callable[[Any], Any] | None = None,
     get_system_message: Callable[[Any], str | None] | None = None,
     auth_required: bool = False,
+    allowed_origins: list[str] | None = None,
+    emit_run_lifecycle_events: bool | None = None,
+    error_detail_policy: str | None = None,
 ) -> Callable[..., Any]:
     """Create a Django Ninja endpoint function.
 
@@ -32,6 +33,9 @@ def create_ninja_endpoint(
         translate_event: Optional event translator
         get_system_message: Optional system message function
         auth_required: Whether authentication is required
+        allowed_origins: CORS origins for this endpoint
+        emit_run_lifecycle_events: Override lifecycle event emission
+        error_detail_policy: "safe" or "full" RUN_ERROR payload policy
 
     Returns:
         Async endpoint function for Django Ninja
@@ -39,6 +43,19 @@ def create_ninja_endpoint(
 
     async def agent_endpoint(request, body: dict) -> Any:
         """Ninja endpoint handler."""
+        origin = get_request_origin(request)
+        resolved_origins = resolve_allowed_origins(allowed_origins)
+        if not is_origin_allowed(origin, resolved_origins):
+            from ninja.errors import HttpError
+
+            raise HttpError(403, "Origin not allowed")
+
+        auth = authenticate_request(request, auth_required=auth_required)
+        if not auth.allowed:
+            from ninja.errors import HttpError
+
+            raise HttpError(auth.status_code or 401, auth.message or "Unauthorized")
+
         try:
             input_data = RunAgentInput.model_validate(body)
         except Exception as exc:
@@ -46,56 +63,24 @@ def create_ninja_endpoint(
 
             raise HttpError(400, f"Invalid request: {exc}")
 
-        encoder = SSEEventEncoder()
-
-        async def event_stream():
-            thread_id = input_data.thread_id or "default"
-            run_id = input_data.run_id or "default"
-
-            try:
-                yield encoder.encode(
-                    RunStartedEvent(
-                        type=EventType.RUN_STARTED,
-                        thread_id=thread_id,
-                        run_id=run_id,
-                    )
-                )
-
-                async for event in run_agent(input_data, request):
-                    if translate_event:
-                        async for translated in translate_event(event):
-                            yield encoder.encode(translated)
-                    else:
-                        yield encoder.encode(event)
-
-                yield encoder.encode(
-                    RunFinishedEvent(
-                        type=EventType.RUN_FINISHED,
-                        thread_id=thread_id,
-                        run_id=run_id,
-                    )
-                )
-
-            except Exception as exc:
-                logger.exception("Error during agent execution")
-                yield encoder.encode(
-                    RunErrorEvent(
-                        type=EventType.RUN_ERROR,
-                        thread_id=thread_id,
-                        run_id=run_id,
-                        error_message=str(exc),
-                    )
-                )
-
-        from django.http import StreamingHttpResponse
-
-        return StreamingHttpResponse(
-            event_stream(),
+        runner = AGUIRunner(
+            run_agent=run_agent,
+            request=request,
+            translate_event=translate_event,
+            get_system_message=get_system_message,
+            emit_run_lifecycle_events=emit_run_lifecycle_events,
+            error_detail_policy=error_detail_policy,
+        )
+        response = StreamingHttpResponse(
+            runner.stream(input_data),
             content_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",
                 "X-Accel-Buffering": "no",
             },
         )
+        for key, value in get_cors_headers(origin, resolved_origins).items():
+            response[key] = value
+        return response
 
     return agent_endpoint

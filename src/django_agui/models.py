@@ -21,7 +21,7 @@ class Thread(models.Model):
     id = models.CharField(
         primary_key=True,
         max_length=64,
-        default=lambda: str(uuid.uuid4()),
+        default=uuid.uuid4,
         help_text="Unique thread identifier",
     )
     user = models.ForeignKey(
@@ -71,7 +71,7 @@ class Run(models.Model):
     id = models.CharField(
         primary_key=True,
         max_length=64,
-        default=lambda: str(uuid.uuid4()),
+        default=uuid.uuid4,
         help_text="Unique run identifier",
     )
     thread = models.ForeignKey(
@@ -144,7 +144,7 @@ class Message(models.Model):
     id = models.CharField(
         primary_key=True,
         max_length=64,
-        default=lambda: str(uuid.uuid4()),
+        default=uuid.uuid4,
         help_text="Unique message identifier",
     )
     thread = models.ForeignKey(
@@ -224,7 +224,7 @@ class ToolCall(models.Model):
     id = models.CharField(
         primary_key=True,
         max_length=64,
-        default=lambda: str(uuid.uuid4()),
+        default=uuid.uuid4,
         help_text="Unique tool call identifier",
     )
     run = models.ForeignKey(
@@ -281,7 +281,7 @@ class Event(models.Model):
     id = models.CharField(
         primary_key=True,
         max_length=64,
-        default=lambda: str(uuid.uuid4()),
+        default=uuid.uuid4,
         help_text="Unique event identifier",
     )
     run = models.ForeignKey(

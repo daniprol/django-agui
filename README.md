@@ -8,7 +8,7 @@
 - **Multi-framework support** - Works with Django, DRF, Django Ninja, and Django Bolt
 - **Django-native** - Uses Django views, URL routing, auth, and settings
 - **Simple API** - Just provide your agent function, we'll handle the rest
-- **Production-ready** - Async views, SSE streaming, proper error handling
+- **Production-focused** - Async views, SSE keepalive/timeout, auth and CORS controls
 
 ## Installation
 
@@ -185,10 +185,15 @@ AGUI = {
     # Authentication
     "AUTH_BACKEND": "django_agui.backends.auth.DjangoAuthBackend",
     "REQUIRE_AUTHENTICATION": False,
+    "ALLOWED_ORIGINS": ["https://app.example.com"],
 
     # SSE settings
     "SSE_KEEPALIVE_INTERVAL": 30,
     "SSE_TIMEOUT": 300,
+
+    # Runtime behavior
+    "EMIT_RUN_LIFECYCLE_EVENTS": True,
+    "ERROR_DETAIL_POLICY": "safe",  # or "full"
 
     # Request limits
     "MAX_CONTENT_LENGTH": 10 * 1024 * 1024,

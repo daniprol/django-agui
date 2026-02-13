@@ -41,4 +41,26 @@ def check_agui_settings(app_configs, **kwargs):
                 )
             )
 
+    error_policy = agui_settings.get("ERROR_DETAIL_POLICY")
+    if error_policy is not None and error_policy not in {"safe", "full"}:
+        errors.append(
+            Error(
+                "Invalid AG-UI setting: ERROR_DETAIL_POLICY",
+                hint='Use "safe" or "full".',
+                obj="django_agui.settings",
+                id="django_agui.E002",
+            )
+        )
+
+    allowed_origins = agui_settings.get("ALLOWED_ORIGINS")
+    if allowed_origins is not None and not isinstance(allowed_origins, (list, tuple)):
+        errors.append(
+            Error(
+                "Invalid AG-UI setting: ALLOWED_ORIGINS",
+                hint="Use a list/tuple of origins or null.",
+                obj="django_agui.settings",
+                id="django_agui.E003",
+            )
+        )
+
     return errors

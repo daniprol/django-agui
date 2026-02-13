@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from datetime import datetime
 from typing import Any
 
 from asgiref.sync import sync_to_async
 from django.core.files.base import ContentFile
 from django.db import transaction
+from django.utils import timezone
 
 from django_agui.storage.base import (
     AGUIStorageBackend,
@@ -154,7 +154,7 @@ class DjangoRunStorage(RunStorage):
         """Update run status."""
         finished_at = None
         if status in ("completed", "failed"):
-            finished_at = datetime.utcnow()
+            finished_at = timezone.now()
 
         await sync_to_async(django_models.Run.objects.filter(id=run_id).update)(
             status=status,
@@ -423,29 +423,41 @@ class DjangoFileStorage(FileStorage):
     async def get_file(self, file_id: str) -> bytes | None:
         """Get file content by ID."""
         storage = self._get_storage()
+        base_path = f"agui/{file_id}"
 
-        # Try to find file with this ID prefix
-        try:
-            files = await sync_to_async(storage.listdir)(f"agui/{file_id}")
-            if files and files[1]:  # files[1] is the list of files
-                file_path = f"agui/{file_id}/{files[1][0]}"
-                with await sync_to_async(storage.open)(file_path, "rb") as f:
-                    return await sync_to_async(f.read)()
-        except Exception:
-            pass
+        @sync_to_async
+        def _read_first_file() -> bytes | None:
+            try:
+                _, files = storage.listdir(base_path)
+                if not files:
+                    return None
+                file_path = f"{base_path}/{files[0]}"
+                with storage.open(file_path, "rb") as file_handle:
+                    return file_handle.read()
+            except Exception:
+                return None
 
-        return None
+        return await _read_first_file()
 
     async def delete_file(self, file_id: str) -> bool:
         """Delete a file."""
         storage = self._get_storage()
+        base_path = f"agui/{file_id}"
 
-        try:
-            # Delete the entire directory
-            await sync_to_async(storage.delete)(f"agui/{file_id}/")
-            return True
-        except Exception:
-            return False
+        @sync_to_async
+        def _delete_all() -> bool:
+            try:
+                _, files = storage.listdir(base_path)
+            except Exception:
+                return False
+
+            deleted_any = False
+            for filename in files:
+                storage.delete(f"{base_path}/{filename}")
+                deleted_any = True
+            return deleted_any
+
+        return await _delete_all()
 
 
 class DjangoStorageBackend(AGUIStorageBackend):

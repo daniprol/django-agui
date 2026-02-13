@@ -5,7 +5,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 from typing import Any
-from datetime import datetime
+from datetime import UTC, datetime
 from dataclasses import dataclass, field
 
 
@@ -15,8 +15,8 @@ class Thread:
 
     id: str
     user_id: str | None
-    created_at: datetime = field(default_factory=datetime.utcnow)
-    updated_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
@@ -30,7 +30,7 @@ class Run:
     status: str  # pending, running, completed, failed
     input_data: dict[str, Any]
     output_state: dict[str, Any] | None
-    started_at: datetime = field(default_factory=datetime.utcnow)
+    started_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     finished_at: datetime | None = None
 
 
@@ -47,7 +47,7 @@ class Message:
     mime_type: str | None = None
     file_url: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 @dataclass
@@ -61,7 +61,7 @@ class ToolCall:
     arguments: dict[str, Any]
     result: dict[str, Any] | None
     status: str  # pending, running, completed, failed
-    started_at: datetime = field(default_factory=datetime.utcnow)
+    started_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     finished_at: datetime | None = None
 
 
@@ -73,7 +73,7 @@ class Event:
     run_id: str
     event_type: str
     data: dict[str, Any]
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 class ThreadStorage(ABC):

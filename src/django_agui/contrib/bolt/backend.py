@@ -20,6 +20,9 @@ class BoltBackend:
         translate_event: Callable[[Any], Any] | None = None,
         get_system_message: Callable[[Any], str | None] | None = None,
         auth_required: bool = False,
+        allowed_origins: list[str] | None = None,
+        emit_run_lifecycle_events: bool | None = None,
+        error_detail_policy: str | None = None,
         **kwargs: Any,
     ) -> Any:
         """Create a Django Bolt API instance.
@@ -29,6 +32,9 @@ class BoltBackend:
             translate_event: Optional event translator
             get_system_message: Optional system message function
             auth_required: Whether authentication is required
+            allowed_origins: CORS origins for this endpoint
+            emit_run_lifecycle_events: Override lifecycle event emission
+            error_detail_policy: "safe" or "full" RUN_ERROR payload policy
             **kwargs: Additional options passed to BoltAPI
 
         Returns:
@@ -52,6 +58,9 @@ class BoltBackend:
             translate_event=translate_event,
             get_system_message=get_system_message,
             auth_required=auth_required,
+            allowed_origins=allowed_origins,
+            emit_run_lifecycle_events=emit_run_lifecycle_events,
+            error_detail_policy=error_detail_policy,
         )
 
         # Register the endpoint

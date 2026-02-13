@@ -6,22 +6,23 @@ import json
 import logging
 from typing import Any, Callable
 
-from django.http import HttpRequest, HttpResponseBadRequest
+from django.http import HttpRequest, HttpResponse, HttpResponseBadRequest
 from django.http import StreamingHttpResponse
 from django.utils.decorators import method_decorator
 from django.views import View
 from django.views.decorators.csrf import csrf_exempt
 
-from ag_ui.core import (
-    EventType,
-    RunAgentInput,
-    RunErrorEvent,
-    RunFinishedEvent,
-    RunStartedEvent,
-)
-from ag_ui.encoder import EventEncoder
+from ag_ui.core import RunAgentInput
 
-from django_agui.encoders import SSEEventEncoder
+from django_agui.runtime import (
+    AGUIRunner,
+    authenticate_request,
+    get_cors_headers,
+    get_request_origin,
+    is_json_content_type,
+    is_origin_allowed,
+    resolve_allowed_origins,
+)
 from django_agui.settings import get_setting
 
 logger = logging.getLogger(__name__)
@@ -39,20 +40,21 @@ class AGUIView(View):
         )
     """
 
-    http_method_names = ["post", "get"]
+    http_method_names = ["post", "get", "options"]
 
     run_agent: Callable[..., Any] = None
     translate_event: Callable[[Any], Any] | None = None
     get_system_message: Callable[[Any], str | None] | None = None
     auth_required: bool = False
     allowed_origins: list[str] | None = None
+    emit_run_lifecycle_events: bool | None = None
+    error_detail_policy: str | None = None
 
     def __init__(
         self,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
-        self._encoder = SSEEventEncoder()
 
     def setup(self, request: HttpRequest, *args: Any, **kwargs: Any) -> "AGUIView":
         """Store view-level attributes from kwargs."""
@@ -67,6 +69,10 @@ class AGUIView(View):
             self.auth_required = kwargs["auth_required"]
         if "allowed_origins" in kwargs:
             self.allowed_origins = kwargs["allowed_origins"]
+        if "emit_run_lifecycle_events" in kwargs:
+            self.emit_run_lifecycle_events = kwargs["emit_run_lifecycle_events"]
+        if "error_detail_policy" in kwargs:
+            self.error_detail_policy = kwargs["error_detail_policy"]
         return self
 
     async def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> Any:
@@ -75,10 +81,29 @@ class AGUIView(View):
             return self._error_response("Agent not configured")
 
         try:
-            if request.content_type != "application/json":
+            if not is_json_content_type(request.content_type):
                 return HttpResponseBadRequest(
                     "Content-Type must be application/json",
                     content_type="text/plain",
+                )
+
+            origin = get_request_origin(request)
+            allowed_origins = resolve_allowed_origins(self.allowed_origins)
+            if not is_origin_allowed(origin, allowed_origins):
+                return self._error_response(
+                    "Origin not allowed",
+                    status=403,
+                    origin=origin,
+                    allowed_origins=allowed_origins,
+                )
+
+            auth = authenticate_request(request, auth_required=self.auth_required)
+            if not auth.allowed:
+                return self._error_response(
+                    auth.message or "Unauthorized",
+                    status=auth.status_code or 401,
+                    origin=origin,
+                    allowed_origins=allowed_origins,
                 )
 
             max_content_length = get_setting("MAX_CONTENT_LENGTH", 10 * 1024 * 1024)
@@ -86,9 +111,11 @@ class AGUIView(View):
             if content_length and max_content_length is not None:
                 try:
                     if int(content_length) > int(max_content_length):
-                        return HttpResponseBadRequest(
+                        return self._error_response(
                             "Payload too large",
-                            content_type="text/plain",
+                            status=413,
+                            origin=origin,
+                            allowed_origins=allowed_origins,
                         )
                 except ValueError:
                     pass
@@ -97,22 +124,41 @@ class AGUIView(View):
                 body = request.body
                 input_data = RunAgentInput.model_validate_json(body)
             except json.JSONDecodeError as exc:
-                return self._error_response(f"Invalid JSON: {exc}")
+                return self._error_response(
+                    f"Invalid JSON: {exc}",
+                    origin=origin,
+                    allowed_origins=allowed_origins,
+                )
             except Exception as exc:
-                return self._error_response(f"Invalid request: {exc}")
+                return self._error_response(
+                    f"Invalid request: {exc}",
+                    origin=origin,
+                    allowed_origins=allowed_origins,
+                )
 
-            return StreamingResponse(
-                self._stream_events(input_data, request),
+            runner = AGUIRunner(
+                run_agent=self.run_agent,
+                request=request,
+                translate_event=self.translate_event,
+                get_system_message=self.get_system_message,
+                emit_run_lifecycle_events=self.emit_run_lifecycle_events,
+                error_detail_policy=self.error_detail_policy,
+            )
+
+            response = StreamingHttpResponse(
+                runner.stream(input_data),
                 content_type="text/event-stream",
                 headers={
                     "Cache-Control": "no-cache",
                     "X-Accel-Buffering": "no",
                 },
             )
+            self._apply_cors_headers(response, origin, allowed_origins)
+            return response
 
         except Exception:
             logger.exception("Unhandled error while processing AG-UI request")
-            return self._error_response("Internal server error")
+            return self._error_response("Internal server error", status=500)
 
     async def get(
         self, request: HttpRequest, *args: Any, **kwargs: Any
@@ -123,51 +169,35 @@ class AGUIView(View):
             content_type="text/plain",
         )
 
-    async def _stream_events(
-        self, input_data: RunAgentInput, request: HttpRequest
-    ) -> Any:
-        """Stream AG-UI events from the agent."""
-        thread_id = input_data.thread_id or "default"
-        run_id = input_data.run_id or "default"
+    async def options(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        """Handle CORS preflight requests."""
+        origin = get_request_origin(request)
+        allowed_origins = resolve_allowed_origins(self.allowed_origins)
+        response = HttpResponse(status=204)
+        self._apply_cors_headers(response, origin, allowed_origins)
+        return response
 
-        try:
-            yield self._encoder.encode(
-                RunStartedEvent(
-                    type=EventType.RUN_STARTED,
-                    thread_id=thread_id,
-                    run_id=run_id,
-                )
-            )
+    def _apply_cors_headers(
+        self,
+        response: HttpResponse,
+        origin: str | None,
+        allowed_origins: list[str] | None,
+    ) -> None:
+        for key, value in get_cors_headers(origin, allowed_origins).items():
+            response[key] = value
 
-            async for event in self.run_agent(input_data, request):
-                if self.translate_event:
-                    async for translated in self.translate_event(event):
-                        yield self._encoder.encode(translated)
-                else:
-                    yield self._encoder.encode(event)
-
-            yield self._encoder.encode(
-                RunFinishedEvent(
-                    type=EventType.RUN_FINISHED,
-                    thread_id=thread_id,
-                    run_id=run_id,
-                )
-            )
-
-        except Exception as exc:
-            logger.exception("Error during agent execution")
-            yield self._encoder.encode(
-                RunErrorEvent(
-                    type=EventType.RUN_ERROR,
-                    thread_id=thread_id,
-                    run_id=run_id,
-                    error_message=str(exc),
-                )
-            )
-
-    def _error_response(self, message: str) -> HttpResponseBadRequest:
+    def _error_response(
+        self,
+        message: str,
+        *,
+        status: int = 400,
+        origin: str | None = None,
+        allowed_origins: list[str] | None = None,
+    ) -> HttpResponse:
         """Create an error response."""
-        return HttpResponseBadRequest(message, content_type="text/plain")
+        response = HttpResponse(message, status=status, content_type="text/plain")
+        self._apply_cors_headers(response, origin, allowed_origins)
+        return response
 
 
 def create_agui_view(
@@ -176,6 +206,8 @@ def create_agui_view(
     get_system_message: Callable[[Any], str | None] | None = None,
     auth_required: bool = False,
     allowed_origins: list[str] | None = None,
+    emit_run_lifecycle_events: bool | None = None,
+    error_detail_policy: str | None = None,
 ) -> type[AGUIView]:
     """Create a custom AGUIView class with the specified agent.
 
@@ -195,5 +227,7 @@ def create_agui_view(
     ConfiguredAGUIView.get_system_message = get_system_message
     ConfiguredAGUIView.auth_required = auth_required
     ConfiguredAGUIView.allowed_origins = allowed_origins
+    ConfiguredAGUIView.emit_run_lifecycle_events = emit_run_lifecycle_events
+    ConfiguredAGUIView.error_detail_policy = error_detail_policy
 
     return ConfiguredAGUIView

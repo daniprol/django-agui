@@ -9,3 +9,7 @@ class DjangoAguiConfig(AppConfig):
     default_auto_field = "django.db.models.BigAutoField"
     name = "django_agui"
     verbose_name = "Django AG-UI"
+
+    def ready(self) -> None:
+        """Register Django system checks."""
+        import django_agui.checks  # noqa: F401

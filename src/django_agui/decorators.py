@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-from ag_ui.core import BaseEvent
-
 from django_agui.views import create_agui_view
 
 
@@ -15,6 +13,8 @@ def agui_view(
     get_system_message: Callable[[Any], str | None] | None = None,
     auth_required: bool = False,
     allowed_origins: list[str] | None = None,
+    emit_run_lifecycle_events: bool | None = None,
+    error_detail_policy: str | None = None,
 ) -> Callable[..., Any]:
     """Decorator to create an AG-UI view from an async agent function.
 
@@ -40,6 +40,8 @@ def agui_view(
             get_system_message=get_system_message,
             auth_required=auth_required,
             allowed_origins=allowed_origins,
+            emit_run_lifecycle_events=emit_run_lifecycle_events,
+            error_detail_policy=error_detail_policy,
         )
 
         # Return the as_view() callable for use in URL patterns
