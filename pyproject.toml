@@ -45,6 +45,9 @@ ninja = [
 bolt = [
     "django-bolt>=0.3",
 ]
+vite = [
+    "django-vite>=3.0",
+]
 langgraph = [
     "langgraph>=0.2.0",
     "langchain-openai>=0.1",

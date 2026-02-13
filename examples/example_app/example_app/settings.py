@@ -18,6 +18,7 @@ INSTALLED_APPS = [
     "django.contrib.contenttypes",
     "django.contrib.auth",
     "rest_framework",
+    "django_vite",
     "django_agui",
     "example_app",
 ]
@@ -29,7 +30,19 @@ MIDDLEWARE = [
 
 ROOT_URLCONF = "example_app.urls"
 
-TEMPLATES = []
+TEMPLATES = [
+    {
+        "BACKEND": "django.template.backends.django.DjangoTemplates",
+        "DIRS": [BASE_DIR / "templates"],
+        "APP_DIRS": True,
+        "OPTIONS": {
+            "context_processors": [
+                "django.template.context_processors.debug",
+                "django.template.context_processors.request",
+            ],
+        },
+    },
+]
 
 WSGI_APPLICATION = "example_app.wsgi.application"
 
@@ -47,6 +60,10 @@ USE_TZ = True
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
+STATIC_URL = "static/"
+STATIC_ROOT = BASE_DIR / "staticfiles"
+STATICFILES_DIRS = [BASE_DIR / "static"]
+
 REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.AllowAny",
@@ -57,6 +74,19 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY", "")
 AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT", "")
 AZURE_OPENAI_DEPLOYMENT = os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o")
+
+DJANGO_VITE = {
+    "default": {
+        "dev_mode": DEBUG,
+        "dev_server_port": 5173,
+        "dev_server_host": "localhost",
+        "static_url_prefix": "static/",
+    }
+}
+
+AGUI = {
+    "USE_DB_STORAGE": os.getenv("AGUI_USE_DB_STORAGE", "false").lower() == "true",
+}
 
 AGUI_AGENTS = {
     "langgraph-assistant": {
