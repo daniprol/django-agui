@@ -17,6 +17,8 @@ DEFAULTS: dict[str, Any] = {
     "AUTH_BACKEND": "django_agui.backends.auth.DjangoAuthBackend",
     "EVENT_ENCODER": "django_agui.encoders.SSEEventEncoder",
     "STATE_BACKEND": None,
+    # Database storage
+    "USE_DB_STORAGE": False,  # Set True to enable DB storage + migrations
     # Security
     "REQUIRE_AUTHENTICATION": False,
     "ALLOWED_ORIGINS": None,

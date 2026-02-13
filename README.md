@@ -185,15 +185,116 @@ AGUI = {
     # Authentication
     "AUTH_BACKEND": "django_agui.backends.auth.DjangoAuthBackend",
     "REQUIRE_AUTHENTICATION": False,
-    
+
     # SSE settings
     "SSE_KEEPALIVE_INTERVAL": 30,
     "SSE_TIMEOUT": 300,
-    
+
     # Request limits
     "MAX_CONTENT_LENGTH": 10 * 1024 * 1024,
 }
 ```
+
+## Database Storage (Optional)
+
+django-agui provides an optional Django ORM storage backend for persisting conversations, messages, and tool calls. **By default, this is disabled and no database migrations are required.**
+
+### Quick Start (No DB Storage)
+
+Use django-agui without any database storage (default):
+
+```python
+# settings.py
+INSTALLED_APPS = [
+    ...
+    "django_agui",
+]
+
+# No AGUI setting needed - DB storage is disabled by default
+```
+
+That's it! No migrations needed.
+
+### Enable Database Storage
+
+To persist conversations in the database:
+
+```python
+# settings.py
+INSTALLED_APPS = [
+    ...
+    "django_agui",
+]
+
+DATABASE_ROUTERS = [
+    "django_agui.storage.router.AGUIDBRouter",
+]
+
+AGUI = {
+    "USE_DB_STORAGE": True,  # Enable DB storage
+}
+```
+
+Then run migrations:
+
+```bash
+python manage.py migrate
+```
+
+### Why Use Database Storage?
+
+The DB storage backend provides:
+
+- **Conversation history**: Persist threads, runs, and messages
+- **Tool call tracking**: Store tool arguments and results
+- **Event logging**: Optional event storage for debugging
+- **File attachments**: Store images, documents, etc.
+
+### Storage Backend Usage
+
+```python
+from django_agui.storage import DjangoStorageBackend
+
+# Initialize storage
+storage = DjangoStorageBackend()
+await storage.initialize()
+
+# Save a conversation thread
+from django_agui.storage import Thread
+thread = Thread(
+    id="thread-123",
+    user_id="user-456",
+    metadata={"topic": "support"}
+)
+await storage.threads.save_thread(thread)
+
+# Save messages
+from django_agui.storage import Message
+message = Message(
+    id="msg-001",
+    thread_id="thread-123",
+    role="user",
+    content="Hello!",
+    content_type="text"
+)
+await storage.messages.save_message(message)
+
+# Retrieve conversation history
+messages = await storage.messages.list_messages(thread_id="thread-123")
+```
+
+### Disable Migrations
+
+If you previously enabled DB storage and want to disable it:
+
+```python
+# settings.py
+AGUI = {
+    "USE_DB_STORAGE": False,  # Disable DB storage
+}
+```
+
+The router will automatically skip all AG-UI migrations.
 
 ## Project Structure
 

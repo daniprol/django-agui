@@ -15,6 +15,7 @@ from django_agui.storage.base import (
     ToolCallStorage,
 )
 from django_agui.storage.django import DjangoStorageBackend
+from django_agui.storage.router import AGUIDBRouter
 
 __all__ = [
     # Storage backend interface
@@ -33,4 +34,6 @@ __all__ = [
     "Event",
     # Django implementation
     "DjangoStorageBackend",
+    # Database router
+    "AGUIDBRouter",
 ]
