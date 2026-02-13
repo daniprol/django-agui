@@ -45,10 +45,34 @@ ninja = [
 bolt = [
     "django-bolt>=0.3",
 ]
+langgraph = [
+    "langgraph>=0.2.0",
+    "langchain-openai>=0.1",
+    "langchain-core>=0.2",
+]
+llamaindex = [
+    "llamaindex>=0.10.0",
+]
+agno = [
+    "agno>=2.0.0",
+]
+openai = [
+    "openai>=1.0.0",
+]
+azure-openai = [
+    "openai>=1.0.0",
+    "azure-openai>=1.0.0",
+]
 all = [
     "djangorestframework>=3.14",
     "django-ninja>=0.21",
     "django-bolt>=0.3",
+    "langgraph>=0.2.0",
+    "langchain-openai>=0.1",
+    "langchain-core>=0.2",
+    "llamaindex>=0.10.0",
+    "agno>=2.0.0",
+    "openai>=1.0.0",
 ]
 channels = ["channels>=4.0", "channels-redis>=4.0"]
 
